@@ -1,0 +1,15 @@
+# Padanan cub_stage2.yaml dengan backbone ResNet18 (Keputusan Desain
+# Eksperimen #4). Jalankan setelah run_stage1.py dengan
+# configs/cub_stage1_resnet18.yaml.
+
+experiment_name: cub_stage2_resnet18
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+  use_attention: true

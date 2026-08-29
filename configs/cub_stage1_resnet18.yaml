@@ -1,0 +1,17 @@
+# Varian backbone ResNet18 - backbone UTAMA pada paper asli ProbCBM
+# (Kim dkk., 2023). Dijalankan berdampingan dengan cub_stage1.yaml
+# (Inception-v3) sesuai Keputusan Desain Eksperimen #4 (dual backbone).
+
+experiment_name: cub_stage1_resnet18
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+
+sae:
+  variant: kl

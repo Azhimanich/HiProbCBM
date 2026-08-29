@@ -1,0 +1,15 @@
+experiment_name: hicem_kitchens_clip
+dataset: kitchens
+baseline: hicem
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: clip_vit_l14
+  image_size: 224
+  embedding_dim: 16
+  n_subconcepts_per_side: 4   # jumlah subkonsep positif & negatif per konsep induk (Bab III.3.4)
+
+train:
+  batch_size: 64

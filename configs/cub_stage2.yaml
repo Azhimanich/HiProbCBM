@@ -1,0 +1,15 @@
+# Tahap 2 HiProbCBM pada CUB-200-2011, Inception-v3.
+# Jalankan setelah run_stage1.py (configs/cub_stage1.yaml) selesai dan
+# pseudo_hierarchy.pt tersedia di --stage1-log-dir.
+
+experiment_name: cub_stage2_inception
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+  use_attention: true   # false -> HiProbCBM-A1 (Tabel 4.8), lihat scripts/run_ablation.py

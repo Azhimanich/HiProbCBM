@@ -1,0 +1,24 @@
+# Tahap 1 HiProbCBM pada PseudoKitchens, backbone CLIP ViT-L/14 (frozen,
+# mengikuti konfigurasi HiCEM - Keputusan Desain Eksperimen #4).
+#
+# Siapkan manifest.csv + info.json lewat
+# scripts/prepare_pseudokitchens_manifest.py sebelum menjalankan ini
+# (lihat README bagian "Menyiapkan PseudoKitchens").
+
+experiment_name: kitchens_stage1_clip
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: clip_vit_l14
+  image_size: 224
+  concept_dim: 16
+  pretrained: true   # frozen di dalam Backbone (lihat models/backbones.py)
+
+train:
+  batch_size: 64     # backbone beku -> throughput lebih tinggi, batch boleh lebih besar
+
+sae:
+  variant: kl

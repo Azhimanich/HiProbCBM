@@ -1,0 +1,18 @@
+# Tahap 2 HiProbCBM pada PseudoKitchens - dataset dengan ground-truth
+# struktur konsep hierarkis eksplisit (ingredient_group -> ingredient),
+# dipakai untuk memvalidasi automatic subconcept discovery (Bab IV.4).
+
+experiment_name: kitchens_stage2_clip
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: clip_vit_l14
+  image_size: 224
+  concept_dim: 16
+  use_attention: true
+
+train:
+  batch_size: 64

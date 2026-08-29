@@ -1,0 +1,14 @@
+# Padanan ResNet18 (backbone utama paper asli Kim dkk., 2023) - Keputusan
+# Desain Eksperimen #4.
+experiment_name: probcbm_cub_resnet18
+dataset: cub
+baseline: probcbm
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+  classifier_head: linear

@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+
+# data & checkpoints (large, not versioned)
+datasets/
+checkpoints/
+train_log/
+results/
+wandb/
+*.pth
+*.pt
+*.ckpt
+*.pkl
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

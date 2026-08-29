@@ -1,0 +1,17 @@
+# Tahap 1 HiProbCBM pada CUB-200-2011, backbone Inception-v3 (konvensi
+# CBM/CEM asli). Untuk perbandingan dengan backbone utama ProbCBM
+# (ResNet18), lihat cub_stage1_resnet18.yaml (Keputusan Desain Eksperimen #4).
+
+experiment_name: cub_stage1_inception
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+
+sae:
+  variant: kl   # ganti ke 'batchtopk' untuk HiProbCBM-A3 (Tabel 4.8)

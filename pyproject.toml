@@ -1,0 +1,32 @@
+[project]
+name = "hiprobcbm"
+version = "0.1.0"
+description = "Hierarchical Probabilistic Concept Bottleneck Model (HiProbCBM) - integrasi representasi konsep probabilistik (ProbCBM) dengan automatic hierarchical subconcept discovery (HiCEM) melalui agregasi berbasis learned attention."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Mohd Azhima" }
+]
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+]
+
+[project.optional-dependencies]
+clip = ["ftfy", "regex", "clip @ git+https://github.com/openai/CLIP.git"]
+logging = ["wandb>=0.16"]
+dev = ["pytest>=7.4"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hiprobcbm*"]

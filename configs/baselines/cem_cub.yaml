@@ -1,0 +1,11 @@
+experiment_name: cem_cub_inception
+dataset: cub
+baseline: cem
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  embedding_dim: 16

@@ -1,0 +1,23 @@
+# HiProbCBM-A3 (Tabel 4.8): varian discovery memakai BatchTopK SAE
+# (Bussmann dkk., 2024, dipakai HiCEM) alih-alih SAE klasik KL-sparsity.
+# Bandingkan hasil pseudo_hierarchy.pt dari run ini dengan cub_stage1.yaml
+# untuk mengukur sensitivitas hasil subconcept discovery terhadap pilihan
+# arsitektur SAE (Keputusan Desain Eksperimen #2).
+
+experiment_name: cub_stage1_batchtopk
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+
+sae:
+  variant: batchtopk
+  kwargs:
+    latent_dim_ratio: 8
+    top_k: 32
+    aux_top_k: 128
