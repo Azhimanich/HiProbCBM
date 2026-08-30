@@ -71,17 +71,31 @@ def discover_subconcepts_for_concept(
 
     d_c = mu_concept.shape[-1]
     selected = mu_concept[presence_mask]
+    n = mu_concept.shape[0]
 
-    if selected.shape[0] < 2:
-        # Tidak cukup sampel untuk melatih SAE -> konsep ini tidak memiliki subkonsep.
-        n = mu_concept.shape[0]
+    def _fallback_single_subconcept() -> ConceptSubconceptResult:
+        """K_i=0 TIDAK PERNAH dikembalikan oleh fungsi ini secara sengaja:
+        `HiProbCBMStage2._aggregate_all_concepts` mengagregasi lewat softmax
+        attention atas subkonsep - kalau K_i=0 (mask seluruhnya False),
+        softmax menghasilkan NaN yang ditangani jadi alpha=0, dan mu_parent
+        jatuh menjadi VEKTOR NOL, bukan representasi konsep yang berarti.
+        Sebagai gantinya, konsep tanpa subkonsep hasil discovery diberi SATU
+        subkonsep trivial yang labelnya = presence_mask konsep itu sendiri -
+        persis padanan aturan HiCEM "jika c_i tidak memiliki subkonsep, maka
+        c_i^+ = c_i^{+'}" (Bab III.3.4): subkonsep tunggal ini berperan
+        sebagai representasi konsep induk itu sendiri.
+        """
         return ConceptSubconceptResult(
             concept_index=concept_index,
             concept_name=concept_name,
             sample_filter=presence_mask,
-            pseudo_labels=torch.zeros(n, 0),
-            num_subconcepts=0,
+            pseudo_labels=presence_mask.float().unsqueeze(1),
+            num_subconcepts=1,
         )
+
+    if selected.shape[0] < 2:
+        # Tidak cukup sampel untuk melatih SAE.
+        return _fallback_single_subconcept()
 
     sae = build_sae(sae_variant, input_dim=d_c, **sae_kwargs)
     activations = train_sae(sae, selected, device=device, **train_kwargs)
@@ -89,9 +103,13 @@ def discover_subconcepts_for_concept(
     alive = activations.sum(dim=0) > 0
     activations = activations[:, alive]
 
+    if activations.shape[1] == 0:
+        # SAE konvergen tapi tidak ada fitur laten yang pernah aktif sama
+        # sekali ("seluruh fitur mati") - kembali ke fallback yang sama.
+        return _fallback_single_subconcept()
+
     pseudo_binary = (activations > threshold).float()
 
-    n = mu_concept.shape[0]
     k = pseudo_binary.shape[1]
     full_labels = torch.zeros(n, k)
     full_labels[presence_mask] = pseudo_binary

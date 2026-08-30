@@ -20,25 +20,41 @@ from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
 logger = logging.getLogger(__name__)
 
 
-def load_pseudo_hierarchy(path: Path) -> tuple[list[int], torch.Tensor]:
-    payload = torch.load(path, map_location="cpu")
-    return payload["subconcepts_per_concept"], payload["pseudo_labels"]
+def load_pseudo_hierarchy(path: Path) -> tuple[list[int], torch.Tensor, list[str]]:
+    payload = torch.load(path, map_location="cpu", weights_only=True)
+    paths = payload.get("paths")
+    if paths is None:
+        raise ValueError(
+            f"'{path}' tidak memuat kunci 'paths' - kemungkinan dihasilkan sebelum perbaikan "
+            "bug penyelarasan pseudo-label (lihat train_stage1.run). Jalankan ulang run_stage1.py."
+        )
+    return payload["subconcepts_per_concept"], payload["pseudo_labels"], paths
 
 
-def train_one_epoch(model, loader, pseudo_labels_all, optimizer, device, cfg_train, sample_index_offset: int = 0):
+def build_path_to_row(paths: list[str]) -> dict[str, int]:
+    """Peta identitas citra -> baris pada `pseudo_labels_all`, dipakai untuk
+    menautkan pseudo-label Tahap 1 ke batch Tahap 2 TANPA bergantung pada
+    kesamaan urutan iterasi dua DataLoader yang berbeda (lihat catatan di
+    `HiProbCBMStage1.extract_means_for_discovery`)."""
+    mapping = {path: i for i, path in enumerate(paths)}
+    if len(mapping) != len(paths):
+        raise ValueError("Ditemukan path citra duplikat pada pseudo_hierarchy.pt - identitas tidak unik.")
+    return mapping
+
+
+def train_one_epoch(model, loader, pseudo_labels_all, path_to_row, optimizer, device, cfg_train):
     model.train()
     running = {"total": 0.0, "class": 0.0, "concept": 0.0, "sub_concept": 0.0, "kl": 0.0}
     n_batches = 0
 
-    idx = sample_index_offset
     for batch in tqdm(loader, desc="stage2/train", leave=False):
         x = batch["image"].to(device)
         y = batch["label"].to(device)
         c_parent = batch["concepts"].to(device)
-
         batch_size = x.shape[0]
-        sub_labels = pseudo_labels_all[idx : idx + batch_size].to(device)
-        idx += batch_size
+
+        row_idx = torch.tensor([path_to_row[p] for p in batch["path"]], dtype=torch.long)
+        sub_labels = pseudo_labels_all[row_idx].to(device)
 
         out = model(x)
         sub_mask = model.subconcept_predictor.mask.unsqueeze(0).expand(batch_size, -1, -1)
@@ -90,14 +106,20 @@ def evaluate_stage2(model: HiProbCBMStage2, loader, device):
 
 def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path) -> None:
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
+    # shuffle=True aman dipakai di sini karena penautan sub_labels sekarang
+    # berbasis identitas `path` per-batch (build_path_to_row), bukan lagi
+    # asumsi urutan posisi yang identik dengan loader ekstraksi Tahap 1.
     train_loader = dataset.get_dataloader(
-        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False
+        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=True
     )
     val_loader = dataset.get_dataloader(
         "val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False
     )
 
-    subconcepts_per_concept, pseudo_labels_all = load_pseudo_hierarchy(stage1_log_dir / "pseudo_hierarchy.pt")
+    subconcepts_per_concept, pseudo_labels_all, pseudo_paths = load_pseudo_hierarchy(
+        stage1_log_dir / "pseudo_hierarchy.pt"
+    )
+    path_to_row = build_path_to_row(pseudo_paths)
 
     model = HiProbCBMStage2(
         backbone_name=cfg.model.backbone,
@@ -114,7 +136,7 @@ def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path) 
 
     best_val_acc = -1.0
     for epoch in range(cfg.train.epochs_stage2):
-        train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, optimizer, device, cfg.train)
+        train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, path_to_row, optimizer, device, cfg.train)
         val_report = evaluate_stage2(model, val_loader, device)
         logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_report.as_dict())
 

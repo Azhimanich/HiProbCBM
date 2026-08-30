@@ -25,7 +25,7 @@ def evaluate_baseline_checkpoint(cfg: Config, checkpoint_path: Path, device: tor
     test_loader = dataset.get_dataloader("test", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
 
     model = build_model(cfg.baseline, cfg, dataset).to(device)
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
     model.eval()
 
     from hiprobcbm.metrics import compute_standard_metrics
@@ -61,7 +61,7 @@ def evaluate_hiprobcbm_checkpoint(
         n_mc_samples_eval=cfg.model.get("n_mc_samples_eval", 32),
         use_attention=cfg.model.get("use_attention", True),
     ).to(device)
-    model.load_state_dict(torch.load(stage2_checkpoint, map_location=device))
+    model.load_state_dict(torch.load(stage2_checkpoint, map_location=device, weights_only=True))
 
     report = evaluate_stage2(model, test_loader, device)
     return report.as_dict()

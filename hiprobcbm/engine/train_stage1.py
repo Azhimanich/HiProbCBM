@@ -88,6 +88,16 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
     train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size)
     val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
+    # Loader KHUSUS untuk automatic subconcept discovery: shuffle=False dan
+    # drop_last=False supaya SETIAP sampel train terekstrak tepat sekali,
+    # dan `path` per-batch bisa dipakai Tahap 2 untuk mencocokkan
+    # pseudo-label ke citra yang benar (lihat `extract_means_for_discovery`
+    # - ini memperbaiki bug kritis: `train_loader` di atas memakai
+    # shuffle=True, jadi TIDAK BOLEH dipakai langsung untuk ekstraksi mean).
+    discovery_loader = dataset.get_dataloader(
+        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size,
+        shuffle=False, drop_last=False,
+    )
 
     model = HiProbCBMStage1(
         backbone_name=cfg.model.backbone,
@@ -111,9 +121,9 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
     torch.save(model.state_dict(), log_dir / "stage1_last.pth")
 
     # Bab IV.5.1.3-4.5.1.4: automatic subconcept discovery pada data train.
-    model.load_state_dict(torch.load(log_dir / "stage1_best.pth", map_location=device))
-    mu_all, concept_probs_all = model.extract_means_for_discovery(
-        train_loader, device, n_samples=cfg.model.get("n_mc_samples_eval", 32)
+    model.load_state_dict(torch.load(log_dir / "stage1_best.pth", map_location=device, weights_only=True))
+    mu_all, concept_probs_all, paths = model.extract_means_for_discovery(
+        discovery_loader, device, n_samples=cfg.model.get("n_mc_samples_eval", 32)
     )
 
     hierarchy = build_pseudo_hierarchy(
@@ -132,6 +142,7 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
         {
             "subconcepts_per_concept": hierarchy.subconcepts_per_concept,
             "pseudo_labels": _stack_padded_pseudo_labels(hierarchy),
+            "paths": paths,  # penaut posisi -> identitas citra (Tahap 2 mencocokkan lewat ini)
             "concept_names": dataset.concept_names,
         },
         log_dir / "pseudo_hierarchy.pt",

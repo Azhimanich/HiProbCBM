@@ -69,18 +69,21 @@ class ConceptDataset:
         batch_size: int,
         num_workers: int = 4,
         shuffle: bool | None = None,
+        drop_last: bool | None = None,
     ) -> DataLoader:
         splits = self.get_splits(image_size=image_size, backbone=backbone)
         dataset = getattr(splits, split)
         if shuffle is None:
             shuffle = split == "train"
+        if drop_last is None:
+            drop_last = split == "train"
         return DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
             pin_memory=torch.cuda.is_available(),
-            drop_last=(split == "train"),
+            drop_last=drop_last,
         )
 
 

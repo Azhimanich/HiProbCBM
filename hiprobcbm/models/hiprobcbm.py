@@ -72,38 +72,66 @@ class HiProbCBMStage1(nn.Module):
 
     @torch.no_grad()
     def extract_means_for_discovery(self, dataloader, device: torch.device, n_samples: int = 8):
-        """Mengumpulkan (mu, concept_probs) untuk seluruh data train - masukan
-        `subconcept_discovery.build_pseudo_hierarchy` (Bab IV.5.1.3)."""
+        """Mengumpulkan (mu, concept_probs, path) untuk seluruh data train -
+        masukan `subconcept_discovery.build_pseudo_hierarchy` (Bab IV.5.1.3).
+
+        PENTING: `dataloader` di sini WAJIB dibuat dengan `shuffle=False,
+        drop_last=False` (lihat `engine/train_stage1.py`), supaya setiap
+        sampel ikut terekstrak tepat sekali. `path` dikembalikan agar Tahap 2
+        bisa mencocokkan pseudo-label ke citra lewat identitas file, bukan
+        lewat asumsi urutan posisi - dua DataLoader terpisah (satu untuk
+        training Tahap 1, satu untuk training Tahap 2) tidak dijamin
+        menghasilkan urutan iterasi yang sama walau sama-sama shuffle=False
+        jika parameter lain (mis. num_workers) berbeda, jadi identitas path
+        adalah satu-satunya penaut yang aman.
+        """
         self.eval()
-        all_mu, all_probs = [], []
+        all_mu, all_probs, all_paths = [], [], []
         for batch in dataloader:
             x = batch["image"].to(device)
             out = self.forward(x, n_samples=n_samples)
             all_mu.append(out.mu.cpu())
             all_probs.append(out.concept_probs.cpu())
-        return torch.cat(all_mu, dim=0), torch.cat(all_probs, dim=0)
+            all_paths.extend(batch["path"])
+        return torch.cat(all_mu, dim=0), torch.cat(all_probs, dim=0), all_paths
 
 
 class SubconceptPredictor(nn.Module):
     """Memprediksi (mu_ik, sigma2_ik) untuk seluruh subkonsep hasil
     discovery (Bab IV.5.2.1). Satu kepala linear per subkonsep, dikelompokkan
-    per konsep induk lalu di-pad ke K_max."""
+    per konsep induk lalu di-pad ke K_max.
+
+    Konsep dengan K_i=0 (tidak ditemukan subkonsep) DIPAKSA punya tepat 1
+    kepala - bukan 0 - supaya baris masknya tidak seluruhnya False. Tanpa
+    ini, `LearnedAttentionAggregator.aggregate` akan menghasilkan softmax
+    atas skor kosong (-inf semua -> NaN -> alpha dipaksa 0), sehingga
+    mu_parent untuk konsep tsb menjadi VEKTOR NOL, bukan representasi
+    konsep yang berarti. Kepala tunggal ini berperan sebagai representasi
+    konsep induk itu sendiri - padanan aturan HiCEM "jika c_i tidak
+    memiliki subkonsep, maka c_i^+ = c_i^{+'}" (Bab III.3.4). Lihat juga
+    fallback yang sepadan di `subconcept_discovery.discover_subconcepts_for_concept`.
+    """
 
     def __init__(self, feature_dim: int, subconcepts_per_concept: list[int], concept_dim: int = 16):
         super().__init__()
         self.subconcepts_per_concept = subconcepts_per_concept
+        # Jumlah kepala AKTUAL per konsep (>=1) - dipakai konsisten di
+        # __init__ maupun forward, terpisah dari `subconcepts_per_concept`
+        # asli (yang boleh berisi 0) supaya niat "K_i=0 -> 1 kepala fallback"
+        # tetap terbaca jelas dari kode, bukan cuma dari max(...,1) tersebar.
+        self._effective_k = [max(k_i, 1) for k_i in subconcepts_per_concept]
         self.num_concepts = len(subconcepts_per_concept)
         self.concept_dim = concept_dim
-        self.k_max = max(subconcepts_per_concept) if subconcepts_per_concept else 0
+        self.k_max = max(self._effective_k) if self._effective_k else 0
 
         self.mean_heads = nn.ModuleList()
         self.logvar_heads = nn.ModuleList()
-        for k_i in subconcepts_per_concept:
+        for k_i in self._effective_k:
             self.mean_heads.append(nn.ModuleList([nn.Linear(feature_dim, concept_dim) for _ in range(k_i)]))
             self.logvar_heads.append(nn.ModuleList([nn.Linear(feature_dim, concept_dim) for _ in range(k_i)]))
 
         mask = torch.zeros(self.num_concepts, max(self.k_max, 1), dtype=torch.bool)
-        for i, k_i in enumerate(subconcepts_per_concept):
+        for i, k_i in enumerate(self._effective_k):
             mask[i, :k_i] = True
         self.register_buffer("mask", mask)
 
@@ -115,7 +143,7 @@ class SubconceptPredictor(nn.Module):
         k_max = max(self.k_max, 1)
         mu = torch.zeros(batch, self.num_concepts, k_max, self.concept_dim, device=h.device)
         sigma2 = torch.zeros_like(mu)
-        for i, k_i in enumerate(self.subconcepts_per_concept):
+        for i, k_i in enumerate(self._effective_k):
             for k in range(k_i):
                 mu[:, i, k, :] = self.mean_heads[i][k](h)
                 sigma2[:, i, k, :] = F.softplus(self.logvar_heads[i][k](h)) + 1e-6
