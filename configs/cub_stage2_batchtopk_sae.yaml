@@ -1,0 +1,17 @@
+# Padanan cub_stage2.yaml untuk varian HiProbCBM-A3 (BatchTopK SAE,
+# Tabel 4.8, tambahan di luar 2 baris resmi A1/A2). Jalankan setelah
+# run_stage1.py dengan configs/cub_stage1_batchtopk_sae.yaml selesai.
+# experiment_name dibuat berbeda dari cub_stage2.yaml supaya hasilnya
+# tidak menimpa log run HiProbCBM utama (Tabel 4.7).
+
+experiment_name: cub_stage2_batchtopk_a3
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+  use_attention: true
