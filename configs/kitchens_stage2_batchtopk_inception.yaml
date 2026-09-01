@@ -1,0 +1,18 @@
+# Padanan Tahap 2 untuk HiProbCBM-A3 backbone Inception-v3 @ PseudoKitchens.
+# Jalankan setelah run_stage1.py dengan
+# configs/kitchens_stage1_batchtopk_inception.yaml.
+
+experiment_name: kitchens_stage2_batchtopk_inception_a3
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+  use_attention: true
+
+train:
+  batch_size: 32

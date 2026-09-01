@@ -1,0 +1,25 @@
+# Tahap 1 HiProbCBM pada PseudoKitchens, backbone Inception-v3 -- eksplorasi
+# tambahan di luar Tabel 4.7 (backbone resmi Kitchens tetap CLIP ViT-L/14,
+# lihat kitchens_stage1.yaml). Dipakai untuk kelompok
+# "HiProbCBM (Inception-v3, PseudoKitchens)".
+#
+# Siapkan manifest.csv + info.json lewat
+# scripts/prepare_pseudokitchens_manifest.py sebelum menjalankan ini.
+
+experiment_name: kitchens_stage1_inception
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+  pretrained: true
+
+train:
+  batch_size: 32
+
+sae:
+  variant: kl

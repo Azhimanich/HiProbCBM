@@ -1,0 +1,24 @@
+# HiProbCBM-A3 (varian SAE BatchTopK) pada PseudoKitchens, backbone
+# ResNet18 -- eksplorasi tambahan. Dipakai untuk kelompok
+# "Ablasi (ResNet18, PseudoKitchens)".
+
+experiment_name: kitchens_stage1_batchtopk_resnet18
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+
+train:
+  batch_size: 32
+
+sae:
+  variant: batchtopk
+  kwargs:
+    latent_dim_ratio: 8
+    top_k: 32
+    aux_top_k: 128

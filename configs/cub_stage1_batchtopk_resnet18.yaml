@@ -1,0 +1,22 @@
+# HiProbCBM-A3 (varian SAE BatchTopK) dengan backbone ResNet18 -- eksplorasi
+# tambahan di luar Tabel 4.8 (versi resmi ada di
+# cub_stage1_batchtopk_sae.yaml, backbone Inception-v3). Dipakai untuk
+# kelompok "Ablasi (ResNet18, CUB)".
+
+experiment_name: cub_stage1_batchtopk_resnet18
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+
+sae:
+  variant: batchtopk
+  kwargs:
+    latent_dim_ratio: 8
+    top_k: 32
+    aux_top_k: 128

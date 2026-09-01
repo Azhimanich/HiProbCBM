@@ -1,0 +1,18 @@
+# Padanan Tahap 2 untuk HiProbCBM-A3 backbone ResNet18 @ PseudoKitchens.
+# Jalankan setelah run_stage1.py dengan
+# configs/kitchens_stage1_batchtopk_resnet18.yaml.
+
+experiment_name: kitchens_stage2_batchtopk_resnet18_a3
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+  use_attention: true
+
+train:
+  batch_size: 32

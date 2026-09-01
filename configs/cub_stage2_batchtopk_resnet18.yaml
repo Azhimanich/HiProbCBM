@@ -1,0 +1,15 @@
+# Padanan Tahap 2 untuk HiProbCBM-A3 backbone ResNet18 -- eksplorasi
+# tambahan. Jalankan setelah run_stage1.py dengan
+# configs/cub_stage1_batchtopk_resnet18.yaml.
+
+experiment_name: cub_stage2_batchtopk_resnet18_a3
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+  use_attention: true

@@ -1,0 +1,18 @@
+# Padanan kitchens_stage2.yaml dengan backbone Inception-v3 -- eksplorasi
+# tambahan di luar Tabel 4.7. Jalankan setelah run_stage1.py dengan
+# configs/kitchens_stage1_inception.yaml.
+
+experiment_name: kitchens_stage2_inception
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: inception_v3
+  image_size: 299
+  concept_dim: 16
+  use_attention: true
+
+train:
+  batch_size: 32

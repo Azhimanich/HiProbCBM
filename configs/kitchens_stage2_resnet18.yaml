@@ -1,0 +1,18 @@
+# Padanan kitchens_stage2.yaml dengan backbone ResNet18 -- eksplorasi
+# tambahan di luar Tabel 4.7. Jalankan setelah run_stage1.py dengan
+# configs/kitchens_stage1_resnet18.yaml.
+
+experiment_name: kitchens_stage2_resnet18
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+  use_attention: true
+
+train:
+  batch_size: 32
