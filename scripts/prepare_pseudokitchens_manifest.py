@@ -95,14 +95,20 @@ def main() -> None:
     with (raw_dir / "info.json").open() as f:
         dataset_info = json.load(f)
 
-    # info.json mentah kadang menyimpan "recipes" sebagai objek JSON
-    # berkey-string (mis. {"0": "Fruit Salad", ...}), bukan array -- json.load
-    # mengubah key JSON jadi str Python, jadi akses pakai recipe_idx (int)
-    # di convert_split() akan KeyError. Normalisasi jadi list terurut di sini
-    # sekali saja, dipakai bersama oleh convert_split() dan info.json keluaran.
+    # info.json mentah kadang menyimpan "recipes" sebagai objek JSON, bukan
+    # array -- json.load mengubah key JSON jadi str Python, jadi akses pakai
+    # recipe_idx (int) di convert_split() akan KeyError. Bentuknya bisa dua
+    # macam: {"0": "Fruit Salad", ...} (index->nama) atau
+    # {"Fruit Salad": 0, ...} (nama->index, dipakai untuk lookup terbalik
+    # saat generate). Normalisasi jadi list terurut di sini sekali saja,
+    # dipakai bersama oleh convert_split() dan info.json keluaran.
     recipes = dataset_info["recipes"]
     if isinstance(recipes, dict):
-        dataset_info["recipes"] = [recipes[k] for k in sorted(recipes, key=int)]
+        sample_key = next(iter(recipes))
+        if sample_key.lstrip("-").isdigit():
+            dataset_info["recipes"] = [recipes[k] for k in sorted(recipes, key=int)]
+        else:
+            dataset_info["recipes"] = [name for name, _ in sorted(recipes.items(), key=lambda kv: kv[1])]
 
     # Ingredient "lepas" (bukan anggota ingredient_group manapun) tetap
     # dicatat di manifest supaya bisa dipakai HiCEM baseline (Tabel 4.7).
