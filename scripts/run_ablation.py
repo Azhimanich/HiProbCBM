@@ -21,7 +21,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from hiprobcbm.config import load_config, prepare_log_dir, resolve_device
+from hiprobcbm.config import load_config, prepare_log_dir, resolve_device, apply_seed_override
 from hiprobcbm.engine import train_stage2
 from hiprobcbm.utils.seed import set_random_seed
 
@@ -50,6 +50,7 @@ def main() -> None:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--log-dir", type=str, default=None)
+    parser.add_argument("--resume", default="auto", help="auto | never | path checkpoint lengkap run ini")
     args = parser.parse_args()
 
     cfg = load_config(args.config, args.base_config)
@@ -59,14 +60,18 @@ def main() -> None:
 
     cfg = Config(merged)
 
+    cfg = apply_seed_override(cfg, args.seed)
     device = resolve_device(args.gpu)
     log_dir = prepare_log_dir(cfg, args.log_dir)
-    set_random_seed(args.seed or cfg.get("seed", 42))
+    set_random_seed(cfg.seed)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler(log_dir / "training.log", encoding="utf-8")],
+    )
     logging.info("Ablasi HiProbCBM-%s | konfigurasi: %s | log: %s", args.variant.upper(), args.config, log_dir)
 
-    train_stage2.run(cfg, device, log_dir, Path(args.stage1_log_dir))
+    train_stage2.run(cfg, device, log_dir, Path(args.stage1_log_dir), resume=args.resume)
 
 
 if __name__ == "__main__":

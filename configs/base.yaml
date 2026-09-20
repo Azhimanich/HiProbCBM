@@ -11,11 +11,12 @@ model:
   concept_dim: 16               # d_c (Bab IV.5.1.1)
   pretrained: true
   n_mc_samples_train: 8         # S saat training (Bab IV.6)
-  n_mc_samples_eval: 32         # S saat pengujian, mengikuti konfigurasi ProbCBM
+  n_mc_samples_eval: 32         # adaptasi hemat komputasi; paper ProbCBM memakai 50
   use_attention: true           # false -> HiProbCBM-A1 (Tabel 4.8)
   embedding_dim: 16             # dipakai baseline CEM/HiCEM
 
 train:
+  num_workers: 2               # cocok runtime Colab 2 CPU; tetap sama saat resume
   batch_size: 32
   lr_stage1: 0.0001             # 1e-4 (Bab IV.6)
   lr_stage2: 0.00005            # 5e-5 (Bab IV.6)
@@ -35,6 +36,7 @@ sae:
   kwargs:
     latent_dim_ratio: 8         # rasio ekspansi dimensi laten (Bab IV.6)
   train_kwargs:
+    checkpoint_interval: 10    # simpan SAE per 10 epoch dan epoch terakhir
     n_epochs: 100
     batch_size: 256
     lr: 0.0003

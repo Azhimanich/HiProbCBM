@@ -16,19 +16,41 @@ from hiprobcbm.data import build_dataset
 from hiprobcbm.losses import hiprobcbm_stage2_loss
 from hiprobcbm.metrics import compute_standard_metrics
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
+from hiprobcbm.utils.checkpoint import RunCheckpoint, run_identity, require_finite, load_artifact
 
 logger = logging.getLogger(__name__)
 
 
 def load_pseudo_hierarchy(path: Path) -> tuple[list[int], torch.Tensor, list[str]]:
+    path = Path(path)
     payload = torch.load(path, map_location="cpu", weights_only=True)
+    if "identity" in payload:
+        payload = load_artifact(path)
     paths = payload.get("paths")
     if paths is None:
         raise ValueError(
             f"'{path}' tidak memuat kunci 'paths' - kemungkinan dihasilkan sebelum perbaikan "
             "bug penyelarasan pseudo-label (lihat train_stage1.run). Jalankan ulang run_stage1.py."
         )
-    return payload["subconcepts_per_concept"], payload["pseudo_labels"], paths
+    counts, labels = payload["subconcepts_per_concept"], payload["pseudo_labels"]
+    if (not counts or any(type(k) is not int or k < 1 for k in counts)
+            or labels.ndim != 3 or labels.shape[:2] != (len(paths), len(counts))
+            or labels.shape[2] != max(counts) or not paths):
+        raise ValueError("Shape/jumlah child/path pseudo hierarchy tidak valid.")
+    require_finite(labels)
+    if not ((labels == 0) | (labels == 1)).all():
+        raise ValueError("Pseudo-label harus biner.")
+    build_path_to_row(paths)
+    for index, count in enumerate(counts):
+        if labels[:, index, count:].any():
+            raise ValueError("Padding pseudo-label harus nol.")
+        support = labels[:, index, :count].sum(dim=0)
+        if count > 1 and (support == 0).any():
+            raise ValueError(f"Parent {index}: child tanpa contoh positif (artifact SAE lama/rusak). "
+                             "Periksa discovery sebelum Stage 2; jangan lanjutkan training panjang.")
+        if count == 1 and support.item() == 0:
+            logger.warning("Parent %d: fallback tunggal tanpa contoh positif; belum ada bukti discovery.", index)
+    return counts, labels, paths
 
 
 def build_path_to_row(paths: list[str]) -> dict[str, int]:
@@ -73,6 +95,7 @@ def train_one_epoch(model, loader, pseudo_labels_all, path_to_row, optimizer, de
             lambda_kl=cfg_train.get("lambda_kl", 5e-5),
         )
 
+        require_finite(loss)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -104,22 +127,24 @@ def evaluate_stage2(model: HiProbCBMStage2, loader, device):
     )
 
 
-def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path) -> None:
+def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path, resume="auto") -> None:
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
     # shuffle=True aman dipakai di sini karena penautan sub_labels sekarang
     # berbasis identitas `path` per-batch (build_path_to_row), bukan lagi
     # asumsi urutan posisi yang identik dengan loader ekstraksi Tahap 1.
     train_loader = dataset.get_dataloader(
-        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=True
+        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=True
     )
     val_loader = dataset.get_dataloader(
-        "val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False
+        "val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False
     )
 
     subconcepts_per_concept, pseudo_labels_all, pseudo_paths = load_pseudo_hierarchy(
         stage1_log_dir / "pseudo_hierarchy.pt"
     )
     path_to_row = build_path_to_row(pseudo_paths)
+    if len(subconcepts_per_concept) != dataset.num_concepts:
+        raise ValueError("Jumlah parent hierarchy berbeda dengan dataset Stage 2.")
 
     model = HiProbCBMStage2(
         backbone_name=cfg.model.backbone,
@@ -134,14 +159,13 @@ def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path) 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr_stage2)
 
-    best_val_acc = -1.0
-    for epoch in range(cfg.train.epochs_stage2):
+    checkpoint = RunCheckpoint(log_dir, "stage2", model, optimizer,
+                               run_identity(cfg, device, [stage1_log_dir / "pseudo_hierarchy.pt"]),
+                               cfg.train.epochs_stage2, resume)
+    for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage2):
         train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, path_to_row, optimizer, device, cfg.train)
         val_report = evaluate_stage2(model, val_loader, device)
         logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_report.as_dict())
 
-        if val_report.task_accuracy > best_val_acc:
-            best_val_acc = val_report.task_accuracy
-            torch.save(model.state_dict(), log_dir / "stage2_best.pth")
-
-    torch.save(model.state_dict(), log_dir / "stage2_last.pth")
+        checkpoint.save_epoch(epoch, val_report.task_accuracy)
+    checkpoint.export_weights()

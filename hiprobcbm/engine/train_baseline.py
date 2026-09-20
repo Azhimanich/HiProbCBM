@@ -17,6 +17,7 @@ from hiprobcbm.data import build_dataset
 from hiprobcbm.losses import cbm_loss, cem_loss, hicem_loss, probcbm_loss
 from hiprobcbm.metrics import compute_standard_metrics
 from hiprobcbm.models.baselines import BASELINE_REGISTRY
+from hiprobcbm.utils.checkpoint import RunCheckpoint, run_identity, require_finite
 
 logger = logging.getLogger(__name__)
 
@@ -90,23 +91,27 @@ def training_step(name: str, model, batch, device, concept_weight: float):
     return loss, components, probs, concept_probs, y, c
 
 
-def run(cfg: Config, device: torch.device, log_dir: Path) -> None:
+def run(cfg: Config, device: torch.device, log_dir: Path, resume="auto") -> None:
     name = cfg.baseline
+    if name == "hicem":
+        raise ValueError("Baseline HiCEM internal belum layak eksperimen: target subkonsep masih placeholder nol. "
+                         "Gunakan implementasi referensi dengan discovery valid; lihat docs/head_to_head_audit_2026-09-20.md.")
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
-    train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size)
-    val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
+    train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2))
+    val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False)
 
     model = build_model(name, cfg, dataset).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr)
     concept_weight = cfg.train.get("concept_weight", 1.0)
 
-    best_val_acc = -1.0
-    for epoch in range(cfg.train.epochs):
+    checkpoint = RunCheckpoint(log_dir, name, model, optimizer, run_identity(cfg, device), cfg.train.epochs, resume)
+    for epoch in range(checkpoint.start_epoch, cfg.train.epochs):
         model.train()
         running_loss = 0.0
         n_batches = 0
         for batch in tqdm(train_loader, desc=f"{name}/train", leave=False):
             loss, _, _, _, _, _ = training_step(name, model, batch, device, concept_weight)
+            require_finite(loss)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -130,8 +135,5 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> None:
             "[%s] epoch=%d train_loss=%.4f val=%s", name, epoch, running_loss / max(n_batches, 1), report.as_dict()
         )
 
-        if report.task_accuracy > best_val_acc:
-            best_val_acc = report.task_accuracy
-            torch.save(model.state_dict(), log_dir / f"{name}_best.pth")
-
-    torch.save(model.state_dict(), log_dir / f"{name}_last.pth")
+        checkpoint.save_epoch(epoch, report.task_accuracy)
+    checkpoint.export_weights()

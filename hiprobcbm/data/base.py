@@ -70,9 +70,13 @@ class ConceptDataset:
         num_workers: int = 4,
         shuffle: bool | None = None,
         drop_last: bool | None = None,
+        augment: bool | None = None,
     ) -> DataLoader:
         splits = self.get_splits(image_size=image_size, backbone=backbone)
         dataset = getattr(splits, split)
+        if augment is not None and hasattr(dataset, "transform"):
+            from hiprobcbm.data.transforms import build_transform
+            dataset.transform = build_transform(backbone, image_size, train=augment)
         if shuffle is None:
             shuffle = split == "train"
         if drop_last is None:

@@ -21,11 +21,13 @@ supervisi Tahap 2 (subbab 4.5.2).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
 
 import torch
 
 from hiprobcbm.models.sae import build_sae, train_sae
+from hiprobcbm.utils.checkpoint import save_artifact, load_artifact, capture_rng, restore_rng
 
 
 @dataclass
@@ -100,7 +102,7 @@ def discover_subconcepts_for_concept(
     sae = build_sae(sae_variant, input_dim=d_c, **sae_kwargs)
     activations = train_sae(sae, selected, device=device, **train_kwargs)
 
-    alive = activations.sum(dim=0) > 0
+    alive = (activations > threshold).any(dim=0)
     activations = activations[:, alive]
 
     if activations.shape[1] == 0:
@@ -133,6 +135,8 @@ def build_pseudo_hierarchy(
     sae_kwargs: dict | None = None,
     train_kwargs: dict | None = None,
     device: str | torch.device = "cpu",
+    checkpoint_dir=None,
+    checkpoint_identity=None,
 ) -> PseudoHierarchy:
     """Jalankan discovery untuk seluruh C konsep top-level sekaligus.
 
@@ -144,6 +148,18 @@ def build_pseudo_hierarchy(
     n, num_concepts, _ = mu_all.shape
     results: list[ConceptSubconceptResult] = []
     for c in range(num_concepts):
+        result_path = Path(checkpoint_dir) / f"concept_{c}" / "result.pt" if checkpoint_dir is not None else None
+        identity = {"run": checkpoint_identity, "concept_index": c, "name": concept_names[c]}
+        if result_path is not None and result_path.exists():
+            cached = load_artifact(result_path)
+            if cached["identity"] != identity:
+                raise ValueError("Cache discovery tidak cocok dengan run/konsep.")
+            results.append(ConceptSubconceptResult(**cached["result"]))
+            restore_rng(cached["rng"])
+            continue
+        kwargs = dict(train_kwargs or {})
+        if result_path is not None:
+            kwargs.update(checkpoint_dir=result_path.parent, checkpoint_identity=identity)
         presence_mask = concept_probs[:, c] > presence_threshold
         result = discover_subconcepts_for_concept(
             concept_index=c,
@@ -153,8 +169,10 @@ def build_pseudo_hierarchy(
             sae_variant=sae_variant,
             threshold=threshold,
             sae_kwargs=sae_kwargs,
-            train_kwargs=train_kwargs,
+            train_kwargs=kwargs,
             device=device,
         )
         results.append(result)
+        if result_path is not None:
+            save_artifact({"identity": identity, "result": asdict(result), "rng": capture_rng()}, result_path)
     return PseudoHierarchy(concept_results=results)

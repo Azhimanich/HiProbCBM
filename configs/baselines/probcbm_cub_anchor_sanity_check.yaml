@@ -1,8 +1,5 @@
-# Sanity check replikasi (Keputusan Desain Eksperimen #1): memakai
-# classifier ANCHOR asli ProbCBM (Kim dkk., 2023) untuk memverifikasi
-# hasil replikasi mendekati Tabel 1 paper asli (Task Acc 0.718, Concept
-# Acc 0.956 pada CUB 299x299, ResNet18) SEBELUM classifier distandardisasi
-# ke Linear+Softmax untuk perbandingan utama.
+# Ablasi classifier anchor pada adaptasi ProbCBM internal, bukan replikasi paper.
+# Backbone/resolusi mengikuti probcbm_cub_resnet18.yaml agar hanya head berbeda.
 experiment_name: probcbm_cub_anchor_sanity_check
 dataset: cub
 baseline: probcbm
@@ -12,6 +9,6 @@ data:
 
 model:
   backbone: resnet18
-  image_size: 299
+  image_size: 224
   concept_dim: 16
   classifier_head: anchor

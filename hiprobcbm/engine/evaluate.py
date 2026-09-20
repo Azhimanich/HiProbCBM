@@ -5,6 +5,7 @@ Pengujian) dan Tabel 4.8 (Studi Ablasi) dari checkpoint yang sudah dilatih.
 from __future__ import annotations
 
 import csv
+import json
 import logging
 from pathlib import Path
 
@@ -20,7 +21,19 @@ from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
 logger = logging.getLogger(__name__)
 
 
+def saved_config(checkpoint_path: Path, fallback: Config) -> Config:
+    """Use the configuration actually trained, including A1/A2 and seed overrides."""
+    manifest = Path(checkpoint_path).parent / "run_manifest.json"
+    if manifest.exists():
+        return Config(json.loads(manifest.read_text(encoding="utf-8"))["config"])
+    logger.warning("Checkpoint legacy tanpa manifest; konfigurasi evaluator harus ditetapkan manual.")
+    return fallback
+
+
 def evaluate_baseline_checkpoint(cfg: Config, checkpoint_path: Path, device: torch.device) -> dict[str, float]:
+    cfg = saved_config(checkpoint_path, cfg)
+    if cfg.baseline == "hicem":
+        raise ValueError("HiCEM placeholder tidak boleh dimasukkan tabel hasil; lihat audit A01/B05.")
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
     test_loader = dataset.get_dataloader("test", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
 
@@ -48,6 +61,7 @@ def evaluate_baseline_checkpoint(cfg: Config, checkpoint_path: Path, device: tor
 def evaluate_hiprobcbm_checkpoint(
     cfg: Config, stage2_checkpoint: Path, subconcepts_per_concept: list[int], device: torch.device
 ) -> dict[str, float]:
+    cfg = saved_config(stage2_checkpoint, cfg)
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
     test_loader = dataset.get_dataloader("test", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
 
@@ -61,6 +75,10 @@ def evaluate_hiprobcbm_checkpoint(
         n_mc_samples_eval=cfg.model.get("n_mc_samples_eval", 32),
         use_attention=cfg.model.get("use_attention", True),
     ).to(device)
+    if cfg.model.backbone == "inception_v3":
+        # torchvision's flag is not a tensor in state_dict. Match the training
+        # factory behavior without downloading pretrained weights at evaluation.
+        model.backbone.module.transform_input = cfg.model.get("pretrained", True)
     model.load_state_dict(torch.load(stage2_checkpoint, map_location=device, weights_only=True))
 
     report = evaluate_stage2(model, test_loader, device)

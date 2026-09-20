@@ -84,9 +84,15 @@ def build_arg_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--gpu", type=int, default=0, help="Index GPU CUDA; -1 untuk CPU.")
     parser.add_argument("--seed", type=int, default=None, help="Override seed acak dari config.")
     parser.add_argument("--log-dir", type=str, default=None, help="Override direktori log/checkpoint.")
-    parser.add_argument("--resume", type=str, default=None, help="Path checkpoint untuk dilanjutkan.")
+    parser.add_argument("--resume", type=str, default="auto", help="auto (default): validasi lalu lanjut; never: wajib direktori baru; atau path *_resume.pth run ini.")
     parser.add_argument("--only-eval", action="store_true", help="Lewati training, langsung evaluasi checkpoint.")
     return parser
+
+
+def apply_seed_override(cfg: Config, seed: int | None) -> Config:
+    values = cfg.to_dict()
+    values["seed"] = values.get("seed", 42) if seed is None else seed
+    return Config(values)
 
 
 def resolve_device(gpu: int):

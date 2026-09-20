@@ -21,11 +21,12 @@ from hiprobcbm.data import build_dataset
 from hiprobcbm.losses import hiprobcbm_stage1_loss
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage1
 from hiprobcbm.models.subconcept_discovery import PseudoHierarchy, build_pseudo_hierarchy
+from hiprobcbm.utils.checkpoint import RunCheckpoint, run_identity, save_artifact, load_artifact, capture_rng, restore_rng, require_finite, file_hash
 
 logger = logging.getLogger(__name__)
 
 
-def train_one_epoch(model: HiProbCBMStage1, loader, optimizer, device, lambda_kl: float) -> dict[str, float]:
+def train_one_epoch(model: HiProbCBMStage1, loader, optimizer, device, lambda_kl: float, n_samples=8) -> dict[str, float]:
     model.train()
     running = {"total": 0.0, "concept_bce": 0.0, "kl": 0.0}
     n_batches = 0
@@ -33,9 +34,10 @@ def train_one_epoch(model: HiProbCBMStage1, loader, optimizer, device, lambda_kl
         x = batch["image"].to(device)
         c = batch["concepts"].to(device)
 
-        out = model(x)
+        out = model(x, n_samples=n_samples)
         loss, components = hiprobcbm_stage1_loss(out.concept_probs, c, out.kl_loss, lambda_kl=lambda_kl)
 
+        require_finite(loss)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -49,7 +51,7 @@ def train_one_epoch(model: HiProbCBMStage1, loader, optimizer, device, lambda_kl
 
 
 @torch.no_grad()
-def evaluate_stage1(model: HiProbCBMStage1, loader, device) -> dict[str, float]:
+def evaluate_stage1(model: HiProbCBMStage1, loader, device, n_samples=32) -> dict[str, float]:
     from hiprobcbm.metrics import concept_accuracy, concept_roc_auc
 
     model.eval()
@@ -57,7 +59,7 @@ def evaluate_stage1(model: HiProbCBMStage1, loader, device) -> dict[str, float]:
     for batch in loader:
         x = batch["image"].to(device)
         c = batch["concepts"].to(device)
-        out = model(x)
+        out = model(x, n_samples=n_samples)
         all_probs.append(out.concept_probs.cpu())
         all_labels.append(c.cpu())
     probs = torch.cat(all_probs)
@@ -84,10 +86,10 @@ def _stack_padded_pseudo_labels(hierarchy: PseudoHierarchy) -> torch.Tensor:
     return stacked
 
 
-def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
+def run(cfg: Config, device: torch.device, log_dir: Path, resume="auto") -> PseudoHierarchy:
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
-    train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size)
-    val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
+    train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2))
+    val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False)
     # Loader KHUSUS untuk automatic subconcept discovery: shuffle=False dan
     # drop_last=False supaya SETIAP sampel train terekstrak tepat sekali,
     # dan `path` per-batch bisa dipakai Tahap 2 untuk mencocokkan
@@ -96,7 +98,7 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
     # shuffle=True, jadi TIDAK BOLEH dipakai langsung untuk ekstraksi mean).
     discovery_loader = dataset.get_dataloader(
         "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size,
-        shuffle=False, drop_last=False,
+        shuffle=False, drop_last=False, augment=False, num_workers=cfg.train.get("num_workers", 2),
     )
 
     model = HiProbCBMStage1(
@@ -108,23 +110,33 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr_stage1)
 
-    best_val_acc = -1.0
-    for epoch in range(cfg.train.epochs_stage1):
-        train_stats = train_one_epoch(model, train_loader, optimizer, device, cfg.train.get("lambda_kl", 5e-5))
-        val_stats = evaluate_stage1(model, val_loader, device)
+    identity = run_identity(cfg, device)
+    checkpoint = RunCheckpoint(log_dir, "stage1", model, optimizer, identity, cfg.train.epochs_stage1, resume)
+    for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage1):
+        train_stats = train_one_epoch(model, train_loader, optimizer, device, cfg.train.get("lambda_kl", 5e-5),
+                                      cfg.model.get("n_mc_samples_train", 8))
+        val_stats = evaluate_stage1(model, val_loader, device, cfg.model.get("n_mc_samples_eval", 32))
         logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_stats)
 
-        if val_stats["concept_accuracy"] > best_val_acc:
-            best_val_acc = val_stats["concept_accuracy"]
-            torch.save(model.state_dict(), log_dir / "stage1_best.pth")
-
-    torch.save(model.state_dict(), log_dir / "stage1_last.pth")
+        checkpoint.save_epoch(epoch, val_stats["concept_accuracy"])
+    checkpoint.export_weights()
 
     # Bab IV.5.1.3-4.5.1.4: automatic subconcept discovery pada data train.
     model.load_state_dict(torch.load(log_dir / "stage1_best.pth", map_location=device, weights_only=True))
-    mu_all, concept_probs_all, paths = model.extract_means_for_discovery(
-        discovery_loader, device, n_samples=cfg.model.get("n_mc_samples_eval", 32)
-    )
+    identity = {**identity, "parent_weights_sha256": file_hash(log_dir / "stage1_best.pth")}
+    feature_path = log_dir / "discovery_features.pt"
+    if feature_path.exists():
+        cached = load_artifact(feature_path)
+        if cached["identity"] != identity:
+            raise ValueError("Cache fitur discovery berasal dari run berbeda.")
+        mu_all, concept_probs_all, paths = cached["mu"], cached["probs"], cached["paths"]
+        restore_rng(cached["rng"])
+    else:
+        mu_all, concept_probs_all, paths = model.extract_means_for_discovery(
+            discovery_loader, device, n_samples=cfg.model.get("n_mc_samples_eval", 32)
+        )
+        save_artifact({"identity": identity, "mu": mu_all, "probs": concept_probs_all, "paths": paths,
+                     "rng": capture_rng()}, feature_path)
 
     hierarchy = build_pseudo_hierarchy(
         mu_all=mu_all,
@@ -136,16 +148,25 @@ def run(cfg: Config, device: torch.device, log_dir: Path) -> PseudoHierarchy:
         sae_kwargs=cfg.sae.get("kwargs", {}),
         train_kwargs=cfg.sae.get("train_kwargs", {}),
         device=device,
+        checkpoint_dir=log_dir / "discovery",
+        checkpoint_identity=identity,
     )
 
-    torch.save(
-        {
-            "subconcepts_per_concept": hierarchy.subconcepts_per_concept,
-            "pseudo_labels": _stack_padded_pseudo_labels(hierarchy),
-            "paths": paths,  # penaut posisi -> identitas citra (Tahap 2 mencocokkan lewat ini)
-            "concept_names": dataset.concept_names,
-        },
-        log_dir / "pseudo_hierarchy.pt",
-    )
+    payload = {
+        "subconcepts_per_concept": hierarchy.subconcepts_per_concept,
+        "pseudo_labels": _stack_padded_pseudo_labels(hierarchy),
+        "paths": paths,  # penaut posisi -> identitas citra (Tahap 2 mencocokkan lewat ini)
+        "concept_names": dataset.concept_names,
+        "identity": identity,
+    }
+    hierarchy_path = log_dir / "pseudo_hierarchy.pt"
+    if hierarchy_path.exists():
+        existing = load_artifact(hierarchy_path)
+        if (existing.get("identity") != identity or existing["paths"] != paths
+                or existing["subconcepts_per_concept"] != payload["subconcepts_per_concept"]
+                or not torch.equal(existing["pseudo_labels"], payload["pseudo_labels"])):
+            raise ValueError("Artifact hierarchy yang ada tidak cocok; tidak ditimpa.")
+    else:
+        save_artifact(payload, hierarchy_path)
     logger.info("Pseudo hierarchical subconcept dataset tersimpan di %s", log_dir / "pseudo_hierarchy.pt")
     return hierarchy

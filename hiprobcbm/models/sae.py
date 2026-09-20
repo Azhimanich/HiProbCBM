@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from hiprobcbm.utils.checkpoint import RunCheckpoint, require_finite
 
 
 @dataclass
@@ -164,6 +165,9 @@ def train_sae(
     lr: float = 3e-4,
     max_grad_norm: float = 1.0,
     device: torch.device | str = "cpu",
+    checkpoint_dir=None,
+    checkpoint_identity=None,
+    checkpoint_interval: int = 10,
 ) -> torch.Tensor:
     """Rutin pelatihan generik untuk kedua varian SAE (Bab IV.5.1.3-5.1.4).
 
@@ -172,24 +176,32 @@ def train_sae(
     Mengembalikan aktivasi laten akhir (N, dict_size) untuk pembentukan
     pseudo subconcept label (thresholding, Bab IV.5.1.4).
     """
+    if checkpoint_interval < 1:
+        raise ValueError("checkpoint_interval harus positif.")
     sae = sae.to(device)
     features = features.to(device)
     optimizer = torch.optim.Adam(sae.parameters(), lr=lr)
 
+    checkpoint = None
+    if checkpoint_dir is not None:
+        checkpoint = RunCheckpoint(checkpoint_dir, "sae", sae, optimizer, checkpoint_identity, n_epochs)
     n = features.shape[0]
-    for _ in range(n_epochs):
+    for epoch in range(checkpoint.start_epoch if checkpoint else 0, n_epochs):
         perm = torch.randperm(n, device=device)
         for start in range(0, n, batch_size):
             idx = perm[start : start + batch_size]
             batch = features[idx]
 
             output = sae(batch)
+            require_finite(output.loss)
             optimizer.zero_grad()
             output.loss.backward()
             torch.nn.utils.clip_grad_norm_(sae.parameters(), max_grad_norm)
             optimizer.step()
             if isinstance(sae, BatchTopKSAE):
                 sae.normalize_decoder_()
+        if checkpoint and ((epoch + 1) % checkpoint_interval == 0 or epoch + 1 == n_epochs):
+            checkpoint.save_epoch(epoch, 0.0)  # SAE uses final epoch, no validation selection.
 
     sae.eval()
     with torch.no_grad():

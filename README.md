@@ -23,21 +23,24 @@ terhadap konsep induknya, sekaligus **mempropagasikan ketidakpastian**
 
 ## Status implementasi
 
-Seluruh modul inti (representasi probabilistik, kedua varian Sparse
-Autoencoder, learned attention + propagasi variance, hierarchical
-probabilistic reasoning, concept intervention, keempat baseline, seluruh
-metrik Bab IV.7.1) sudah diimplementasikan dan **diverifikasi lewat 34
-smoke test** yang bisa dijalankan di CPU tanpa dataset asli:
+Modul inti dan orkestrasi training diuji dengan data sintetis di CPU,
+termasuk tes putus-sambung checkpoint. Tes ini tidak membuktikan kesetaraan
+ilmiah terhadap metode asli atau konvergensi pada data pengguna.
+CEM/ProbCBM internal masih merupakan adaptasi; training HiCEM placeholder
+ditahan sampai supervisi discovery-nya benar. Protokol evaluasi intervensi
+dan discovery held-out belum lengkap.
 
 ```bash
 pip install -e ".[dev]"
 python -m pytest tests/ -v
 ```
 
-Yang **belum** dikerjakan repo ini: mengunduh dataset asli (CUB-200-2011,
-PseudoKitchens) dan menjalankan training penuh sampai konvergen -
-keduanya butuh GPU dan waktu komputasi yang di luar cakupan penyiapan
-repository. Lihat [Menyiapkan dataset](#menyiapkan-dataset) di bawah.
+Pengguna sudah menjalankan persiapan dataset dan training CUB di Colab;
+penyelesaian seluruh matriks eksperimen belum diverifikasi. Lihat
+[audit head-to-head dan novelty](docs/head_to_head_audit_2026-09-20.md)
+untuk status pembanding, serta [panduan resume](docs/resume_training.md)
+sebelum menjalankan sel 15/16/17. Checkpoint lengkap tersimpan per epoch;
+bobot dari kode lama tidak otomatis menjadi checkpoint resume penuh.
 
 ## Peta subbab proposal -> kode
 
@@ -64,10 +67,10 @@ HiProbCBM*](#) yang dibuat sebagai pendamping Bab III/IV:
 
 1. **Classifier head terstandardisasi.** Seluruh model (CBM, CEM, ProbCBM,
    HiCEM, HiProbCBM) memakai `LinearSoftmaxClassifier`
-   (`hiprobcbm/models/classifier.py`) yang sama, supaya perbedaan hasil
-   diatribusikan pada representasi konsep, bukan arsitektur classifier.
-   `AnchorClassifier` (mekanisme asli ProbCBM) tetap tersedia untuk
-   sanity-check replikasi - lihat
+   (`hiprobcbm/models/classifier.py`) pada protokol adaptasi bersama.
+   Ini mengontrol head, tetapi tidak membuktikan seluruh selisih hasil hanya
+   berasal dari representasi konsep. `AnchorClassifier` tersedia sebagai
+   ablasi head pada adaptasi ProbCBM, bukan replikasi penuh paper - lihat
    `configs/baselines/probcbm_cub_anchor_sanity_check.yaml`.
 2. **Dua varian Sparse Autoencoder** - KL-sparsity (default) dan
    BatchTopK - keduanya diimplementasikan di `hiprobcbm/models/sae.py` dan
