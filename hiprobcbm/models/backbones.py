@@ -51,26 +51,12 @@ class Backbone(nn.Module):
 
 
 class _ResNetBackbone(Backbone):
-    def spatial_features(self, x):
-        m = self.module
-        x = m.maxpool(m.relu(m.bn1(m.conv1(x))))
-        return m.layer4(m.layer3(m.layer2(m.layer1(x))))
-
     def _extract(self, x: torch.Tensor) -> torch.Tensor:
         feat = self.module(x)
         return torch.flatten(feat, 1)
 
 
 class _InceptionBackbone(Backbone):
-    def spatial_features(self, x):
-        m = self.module
-        x = m._transform_input(x)
-        for name in ("Conv2d_1a_3x3", "Conv2d_2a_3x3", "Conv2d_2b_3x3", "maxpool1",
-                     "Conv2d_3b_1x1", "Conv2d_4a_3x3", "maxpool2", "Mixed_5b", "Mixed_5c", "Mixed_5d",
-                     "Mixed_6a", "Mixed_6b", "Mixed_6c", "Mixed_6d", "Mixed_6e", "Mixed_7a", "Mixed_7b", "Mixed_7c"):
-            x = getattr(m, name)(x)
-        return x
-
     def _extract(self, x: torch.Tensor) -> torch.Tensor:
         out = self.module(x)
         # torchvision inception_v3 mengembalikan InceptionOutputs(logits, aux)

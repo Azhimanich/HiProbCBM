@@ -1,15 +1,36 @@
 # Audit kesetaraan eksperimen HiProbCBM — 20–21 September 2026
 
+## Koreksi ruang lingkup baseline — 21 September 2026
+
+Objek penelitian dan implementasi yang dilatih di repository ini adalah
+**HiProbCBM**. Baseline pembanding utama adalah repository referensi terpisah
+`../ProbCBM` (commit `912fc4e`) dan `../HiCEM` (commit `41802a5`), yang
+dipertahankan tanpa perubahan. Kode `hiprobcbm/models/baselines/` bukan
+pengganti untuk menjalankan atau mengklaim hasil kedua repository tersebut.
+
+Head-to-head yang benar berarti menjalankan sumber asli masing-masing baseline,
+lalu menyamakan hanya hal yang berada di luar metodologi: versi/split dataset,
+urutan konsep dan kelas, backbone/weights/freeze state, preprocessing, seed,
+aturan validation checkpoint, dan test final. Arsitektur, loss, scheduler,
+intervensi, discovery, serta prosedur training milik ProbCBM/HiCEM tidak
+distandardisasi atau ditulis ulang ke HiProbCBM. Output setiap repository
+dicatat terpisah dan baru diagregasi setelah seluruh seed selesai.
+
+Saat ini notebook `HiProbCBM` menjalankan HiProbCBM beserta ablasinya. Entry
+baseline internal yang tidak identik dengan source referensi tetap ditahan;
+runner untuk menjalankan dua repository referensi secara terpisah perlu
+menetapkan adapter data dan environment tanpa mengubah kode upstream.
+
 ## Pembaruan implementasi dan klasifikasi keputusan
 
-Audit diperiksa ulang pada 20–21 September 2026 setelah permintaan resume Colab.
+Audit diperiksa ulang pada 20 September 2026 setelah permintaan resume Colab.
 Bagian A–H di bawah menyimpan temuan **snapshot sebelum perbaikan**; status
 terbaru pada tabel ini mendahului keterangan historis di bagian tersebut.
 Perubahan kode ini belum berarti seluruh baseline sudah menjadi replikasi paper.
 
 | Temuan | Penyesuaian sekarang | Batas yang masih berlaku |
 | --- | --- | --- |
-| E06: resume | Checkpoint model + optimizer + scheduler + epoch + best val/epoch + bad-epoch early stopping + bobot best + RNG Python/NumPy/Torch/CUDA, validasi identitas, checksum, atomic replace dan satu backup; sel 15/16/17 memakai resume | Checkpoint skema lama tidak bisa dipulihkan sebagai resume penuh; batas epoch, bukan batch; sinkronisasi Drive belum diuji langsung |
+| E06: resume | Checkpoint model + Adam + epoch + best val/epoch + bobot best + RNG Python/NumPy/Torch/CUDA, validasi identitas, checksum, atomic replace dan satu backup; sel 15/16/17 memakai resume | Checkpoint bobot lama tidak bisa dipulihkan sebagai resume penuh; batas epoch, bukan batch; sinkronisasi Drive belum diuji langsung |
 | Discovery setelah Stage 1 | Cache fitur terikat bobot parent; hasil konsep disimpan; SAE mendapat checkpoint optimizer/RNG tiap 10 epoch dan akhir | Ekstraksi fitur yang belum selesai diulang; artifact rusak ditolak, bukan dianggap selesai |
 | A02, E01, E02 | Evaluasi memuat config efektif dari manifest, memakai best validation, melewati Stage 1, membatasi RUN_TAGS; A1 tetap uniform | Checkpoint legacy perlu konfigurasi eksplisit/audit manual |
 | A03 | Evaluator mengembalikan flag Inception `transform_input` sesuai pilihan pretrained saat training | Belum mengukur perubahan accuracy checkpoint pengguna |
@@ -19,30 +40,7 @@ Perubahan kode ini belum berarti seluruh baseline sudah menjadi replikasi paper.
 | C01 | Ablasi anchor ResNet18 memakai 224 seperti adaptasi linear ResNet18 | Anchor internal tetap bukan PEM/anchor/scorer lengkap dari paper |
 | D02 | Ekstraksi discovery memakai transform evaluasi pada **sampel train**, tanpa augmentasi acak | Sampling MC masih acak dan RNG disimpan; data test tidak masuk discovery |
 | E05 | Seed 0 ditangani benar; seed efektif disimpan dan pergantian seed pada folder lama ditolak; notebook memberi pola direktori per seed | Tiga seed belum diluncurkan otomatis; hasil mean/std belum tersedia |
-| A01/B05 | HiCEM sekarang menjalankan CEM awal → discovery pada **train** → latihan child positif hasil discovery; evaluator membangun arsitektur dari artifact hierarchy tersebut | Ini pembanding **controlled-discovery**, belum replikasi faithful HiCEM: tidak ada child negatif/oracle hierarchy dan budget/protokol paper belum ditiru penuh |
-
-## Status keputusan 21 September: pembanding yang boleh dijalankan
-
-Matriks sekarang siap dijalankan sebagai **perbandingan terkontrol dalam tesis**:
-semua anggota kelompok CUB/Inception dan PseudoKitchens/CLIP memakai dataset,
-split, parent-concept order, backbone, resolusi, preprocessing, seed,
-checkpoint selection dari validation, dan test final yang sama. Konfigurasi
-menyimpan `benchmark.comparison_group` serta `benchmark.protocol` di manifest
-agar hasil dari kelompok berbeda tidak tercampur.
-
-Yang belum boleh diklaim adalah kesetaraan angka dengan paper asli. CEM tetap
-baris *controlled adaptation*, ProbCBM mode default adalah adaptasi terkontrol,
-dan HiCEM adalah *controlled-discovery*. Jalur ProbCBM `implementation: reference`
-memulihkan PEM/anchor konsep dan objektif MC, tetapi belum menjadi replikasi
-end-to-end paper karena classifier/prosedur sequential referensi belum seluruhnya
-diadopsi. Label ini harus dipakai pada tabel dan naskah.
-
-Protokol final per kelompok memakai seed **42, 43, 44**, dikunci sebelum test.
-Satu seed hanya pilot. Setiap seed harus menuntaskan semua anggota kelompok
-yang dibandingkan, lalu dilaporkan mean, sample standard deviation, jumlah
-parameter, waktu total termasuk discovery, best validation metric/epoch, dan
-metrik test. Hasil yang sudah ada dari konfigurasi/checkpoint schema lama tidak
-dicampur dengan protokol ini.
+| A01/B05 | Training/evaluasi HiCEM internal placeholder ditolak; entrinya ditandai DITAHAN dalam notebook | Baseline yang digunakan untuk pembanding utama adalah repository `../HiCEM` asli, bukan implementasi internal ini |
 
 Panduan operasional: [resume_training.md](resume_training.md). Output eksekusi
 lama notebook dipertahankan; output tersebut bukan bukti kode baru telah
@@ -82,17 +80,23 @@ selesaikan baseline faithful dan jalankan protokol referensinya; untuk klaim
 adaptasi terkontrol, tetapkan rentang tuning dan kriteria berhenti sebelum test.
 Resume tidak dipakai untuk diam-diam menambah epoch setelah melihat test.
 
-**Yang belum selesai untuk tabel ilmiah final:** validasi dataset Drive;
-konvergensi/tuning; tiga seed; discovery held-out; intervensi dan uncertainty.
-Untuk klaim terhadap paper asli, lengkapi pula prosedur reference CEM/ProbCBM
-dan HiCEM dua cabang. Matriks tetap 18 entri per seed; HiCEM tidak lagi ditahan,
-tetapi harus ditulis sebagai *controlled-discovery*, bukan baseline faithful.
+**Yang belum selesai untuk tabel ilmiah final:** adapter/runner data dan
+environment untuk menjalankan source asli ProbCBM serta HiCEM; validasi dataset
+Drive; konvergensi/tuning; tiga seed; discovery held-out; intervensi dan
+uncertainty. Entry HiCEM internal tetap ditahan dan tidak menjadi hasil
+pembanding. Tidak ada penggantian novelty atau penulisan ulang baseline secara
+diam-diam.
 
 ## Kesimpulan dan batas pemeriksaan awal
 
 **Matriks eksperimen saat ini belum siap dipakai untuk klaim keunggulan terhadap metode asli.** Pasangan dataset/backbone di beberapa kelompok sudah disamakan, tetapi ada bug evaluasi, baseline yang berubah substansial, protokol training berbeda, dan pengujian kontribusi penelitian yang belum terhubung.
 
-Audit mencakup konfigurasi efektif 18 run di notebook, loader dan konversi data, empat baseline internal, kedua tahap HiProbCBM, SAE, ablasi, evaluasi, intervensi, dan pencatatan eksperimen. Sumber dibandingkan dengan paper ProbCBM, CEM, HiCEM, CBM serta clone referensi lokal. Ini audit statis dengan probe CPU kecil, bukan validasi seluruh eksperimen pada dataset asli. Isi Drive, versi paket server Colab, checkpoint aktif, dan distribusi pseudo-label aktual belum diperiksa langsung.
+Audit mencakup konfigurasi efektif 18 run di notebook, loader dan konversi data,
+kedua tahap HiProbCBM, SAE, ablasi, evaluasi, intervensi, pencatatan eksperimen,
+serta kontrak source dua repository referensi. Ini audit statis dengan probe CPU
+kecil, bukan validasi seluruh eksperimen pada dataset asli. Isi Drive, versi
+paket server Colab, checkpoint aktif, dan distribusi pseudo-label aktual belum
+diperiksa langsung.
 
 Snapshot awal: HiProbCBM `998b516a4a4aac470b02b49aa358de559c900693`; HiCEM `41802a5641917b44ab1b312c4dfe03b3040d6895`; ProbCBM `912fc4e49d96533b30253314519614c2f3df65e0`. Notebook lokal sudah berstatus modified sebelum audit. Audit pertama tidak mengubah implementasi; tindak lanjut resume mengubah worktree sebagaimana tabel pembaruan di atas. Sesi Colab tidak diubah langsung.
 

@@ -204,23 +204,16 @@ Lihat `docs/resume_training.md` untuk batas resume dan langkah Colab;
 `docs/head_to_head_audit_2026-09-20.md` memisahkan kewajiban fairness dari novelty.
 Belum ada commit/push atau pengujian ulang runtime Colab dari tindak lanjut ini.
 
-## Tindak lanjut 21 September 2026: protokol pembanding terkontrol
+## Tindak lanjut 21 September 2026: koreksi scope pembanding
 
-Snapshot temuan di atas telah diperbarui sebagian. `RunCheckpoint` schema 2
-menyimpan dan memvalidasi jenis optimizer, scheduler, early stopping, riwayat
-validation, epoch, best state, RNG, checksum dan backup; semua trainer memakai
-policy YAML `none`/`plateau`/`cosine`. Resume checkpoint schema lama ditolak.
+`HiProbCBM` adalah satu-satunya metode yang dikembangkan di repository ini.
+`../ProbCBM` dan `../HiCEM` adalah clone baseline asli yang harus tetap
+bersih; jalankan source mereka secara terpisah untuk pembandingan. Modul
+baseline internal tidak boleh digunakan sebagai pengganti atau disebut hasil
+ProbCBM/HiCEM asli. Head-to-head menyamakan data/split/backbone/preprocessing,
+seed, pemilihan validation checkpoint, dan test final tanpa menulis ulang
+metodologi upstream. Lihat docs/head_to_head_audit_2026-09-20.md.
 
-HiCEM sekarang memiliki pipeline terpisah: CEM awal di `initial_cem/`,
-discovery hanya pada train, lalu child positif hasil discovery dilatih pada
-HiCEM. Evaluator memuat `hicem_pseudo_hierarchy.pt`; target nol placeholder
-tidak dipakai lagi. Ini adalah `controlled-discovery`, **bukan** replikasi
-faithful HiCEM karena child negatif/oracle hierarchy serta protokol paper
-belum direplikasi penuh.
-
-Konfigurasi menyimpan `benchmark.protocol` dan `benchmark.comparison_group`.
-Perbandingan yang boleh diklaim saat ini adalah controlled head-to-head per
-kelompok dataset/backbone, dengan seed 42/43/44, checkpoint dipilih dari
-validation dan test hanya final. Klaim terhadap angka paper tetap membutuhkan
-baseline faithful, tuning/konvergensi, discovery held-out dan evaluasi
-intervention. Lihat docs/head_to_head_audit_2026-09-20.md.
+`RunCheckpoint` schema 2 pada HiProbCBM menyimpan optimizer, scheduler,
+early stopping, riwayat validation, epoch, best state, RNG, checksum dan
+backup. Resume checkpoint schema lama ditolak.

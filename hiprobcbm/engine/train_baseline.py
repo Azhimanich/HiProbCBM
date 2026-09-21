@@ -17,8 +17,7 @@ from hiprobcbm.data import build_dataset
 from hiprobcbm.losses import cbm_loss, cem_loss, hicem_loss, probcbm_loss
 from hiprobcbm.metrics import compute_standard_metrics
 from hiprobcbm.models.baselines import BASELINE_REGISTRY
-from hiprobcbm.utils.checkpoint import run_identity, require_finite
-from hiprobcbm.engine.protocol import checkpoint_for, optimizer_for
+from hiprobcbm.utils.checkpoint import RunCheckpoint, run_identity, require_finite
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,6 @@ def build_model(name: str, cfg: Config, dataset):
             backbone_name=model_cfg["backbone"], num_concepts=dataset.num_concepts,
             num_classes=dataset.num_classes, embedding_dim=model_cfg.get("embedding_dim", 16),
             pretrained=model_cfg.get("pretrained", True),
-            intervention_probability=cfg.train.get("intervention_probability", .25),
         )
     if name == "probcbm":
         return BASELINE_REGISTRY["probcbm"](
@@ -45,7 +43,6 @@ def build_model(name: str, cfg: Config, dataset):
             classifier_head=model_cfg.get("classifier_head", "linear"),
             n_mc_samples_train=model_cfg.get("n_mc_samples_train", 8),
             n_mc_samples_eval=model_cfg.get("n_mc_samples_eval", 32),
-            implementation=model_cfg.get("implementation", "controlled"),
         )
     if name == "hicem":
         n_top = dataset.num_concepts
@@ -70,7 +67,7 @@ def training_step(name: str, model, batch, device, concept_weight: float):
         probs = torch.softmax(out.task_logits, dim=-1)
         concept_probs = out.concept_probs
     elif name == "cem":
-        out = model(x, concept_labels=c)
+        out = model(x)
         loss, components = cem_loss(out.concept_probs, c, out.task_logits, y, concept_weight)
         probs = torch.softmax(out.task_logits, dim=-1)
         concept_probs = out.concept_probs
@@ -97,52 +94,46 @@ def training_step(name: str, model, batch, device, concept_weight: float):
 def run(cfg: Config, device: torch.device, log_dir: Path, resume="auto") -> None:
     name = cfg.baseline
     if name == "hicem":
-        from hiprobcbm.engine import train_hicem
-        return train_hicem.run(cfg, device, log_dir, resume)
+        raise ValueError("Baseline HiCEM internal belum layak eksperimen: target subkonsep masih placeholder nol. "
+                         "Gunakan implementasi referensi dengan discovery valid; lihat docs/head_to_head_audit_2026-09-20.md.")
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
     train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2))
     val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False)
 
     model = build_model(name, cfg, dataset).to(device)
-    optimizer = optimizer_for(model, cfg.train, cfg.train.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr)
     concept_weight = cfg.train.get("concept_weight", 1.0)
 
-    checkpoint = checkpoint_for(log_dir, name, model, optimizer, run_identity(cfg, device), cfg.train.epochs, cfg.train, resume)
-    if checkpoint.completed:
-        logger.info("[%s] checkpoint sudah selesai; ekspor bobot terbaik.", name)
-    else:
-        for epoch in range(checkpoint.start_epoch, cfg.train.epochs):
-            model.train()
-            running_loss = 0.0
-            n_batches = 0
-            for batch in tqdm(train_loader, desc=f"{name}/train", leave=False):
-                loss, _, _, _, _, _ = training_step(name, model, batch, device, concept_weight)
-                require_finite(loss)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                running_loss += loss.item()
-                n_batches += 1
+    checkpoint = RunCheckpoint(log_dir, name, model, optimizer, run_identity(cfg, device), cfg.train.epochs, resume)
+    for epoch in range(checkpoint.start_epoch, cfg.train.epochs):
+        model.train()
+        running_loss = 0.0
+        n_batches = 0
+        for batch in tqdm(train_loader, desc=f"{name}/train", leave=False):
+            loss, _, _, _, _, _ = training_step(name, model, batch, device, concept_weight)
+            require_finite(loss)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+            n_batches += 1
 
-            model.eval()
-            all_probs, all_labels, all_cprobs, all_clabels = [], [], [], []
-            with torch.no_grad():
-                for batch in val_loader:
-                    _, _, probs, cprobs, y, c = training_step(name, model, batch, device, concept_weight)
-                    all_probs.append(probs.cpu())
-                    all_labels.append(y.cpu())
-                    all_cprobs.append(cprobs.cpu())
-                    all_clabels.append(c.cpu())
+        model.eval()
+        all_probs, all_labels, all_cprobs, all_clabels = [], [], [], []
+        with torch.no_grad():
+            for batch in val_loader:
+                _, _, probs, cprobs, y, c = training_step(name, model, batch, device, concept_weight)
+                all_probs.append(probs.cpu())
+                all_labels.append(y.cpu())
+                all_cprobs.append(cprobs.cpu())
+                all_clabels.append(c.cpu())
 
-            report = compute_standard_metrics(
-                torch.cat(all_probs), torch.cat(all_labels), torch.cat(all_cprobs), torch.cat(all_clabels)
-            )
-            logger.info(
-                "[%s] epoch=%d train_loss=%.4f val=%s", name, epoch,
-                running_loss / max(n_batches, 1), report.as_dict()
-            )
+        report = compute_standard_metrics(
+            torch.cat(all_probs), torch.cat(all_labels), torch.cat(all_cprobs), torch.cat(all_clabels)
+        )
+        logger.info(
+            "[%s] epoch=%d train_loss=%.4f val=%s", name, epoch, running_loss / max(n_batches, 1), report.as_dict()
+        )
 
-            checkpoint.save_epoch(epoch, report.task_accuracy)
-            if checkpoint.completed:
-                break
+        checkpoint.save_epoch(epoch, report.task_accuracy)
     checkpoint.export_weights()

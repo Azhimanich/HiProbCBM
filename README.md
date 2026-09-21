@@ -26,10 +26,11 @@ terhadap konsep induknya, sekaligus **mempropagasikan ketidakpastian**
 Modul inti dan orkestrasi training diuji dengan data sintetis di CPU,
 termasuk tes putus-sambung checkpoint. Tes ini tidak membuktikan kesetaraan
 ilmiah terhadap metode asli atau konvergensi pada data pengguna.
-CEM/ProbCBM internal masih merupakan adaptasi. HiCEM memakai pipeline CEM
-awal → discovery pada split train → child positif dan hanya boleh dilaporkan
-sebagai *controlled-discovery*, bukan replikasi faithful paper. Protokol
-evaluasi intervensi dan discovery held-out belum lengkap.
+HiProbCBM adalah model yang diimplementasikan dan dilatih di repository ini.
+ProbCBM dan HiCEM pembanding utama dijalankan dari repository referensi
+terpisah tanpa mengubah kode upstream; modul baseline internal bukan pengganti
+hasil source tersebut. Protokol evaluasi intervensi dan discovery held-out
+belum lengkap.
 
 ```bash
 pip install -e ".[dev]"

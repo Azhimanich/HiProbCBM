@@ -114,17 +114,18 @@ diizinkan pada direktori tanpa checkpoint.
   early stopping; perubahan kebijakan ini membuat resume ditolak. AMP/GradScaler
   belum dipakai, sehingga bila kelak ditambah, state-nya wajib ikut checkpoint
   dan skema harus dinaikkan terlebih dahulu.
-- HiCEM memakai pipeline CEM → discovery train → child positif dan mendapat
-  checkpoint terpisah untuk CEM awal serta tahap hierarkis. Resume menjaga
-  state keduanya, tetapi tidak mengubahnya menjadi replikasi faithful HiCEM.
+- HiCEM dan ProbCBM pembanding utama dijalankan dari repository referensi
+  terpisah. Checkpoint resume pada repository ini berlaku untuk HiProbCBM dan
+  baseline internal yang memang dijalankan di sini; jangan mencampurkannya
+  dengan output source upstream.
 
 Rujukan: [checkpoint umum PyTorch](https://docs.pytorch.org/tutorials/beginner/saving_loading_models.html#saving-loading-a-general-checkpoint-for-inference-and-or-resuming-training)
 dan [batas reproduksibilitas PyTorch](https://pytorch.org/docs/stable/notes/randomness.html).
 
 ## Hasil verifikasi lokal
 
-- Setelah policy scheduler/early stopping dan jalur HiCEM controlled-discovery:
-  **63 passed** (suite penuh, termasuk orkestrasi DataLoader di luar sandbox Windows).
+- Setelah policy scheduler/early stopping: **63 passed** (suite penuh,
+  termasuk orkestrasi DataLoader di luar sandbox Windows).
 
 - Suite penuh setelah implementasi resume dan regresi audit: **58 passed**.
 - Setelah menambah validasi hierarchy Stage 2, tes yang terdampak dijalankan

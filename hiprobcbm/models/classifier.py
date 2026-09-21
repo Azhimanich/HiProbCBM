@@ -57,8 +57,8 @@ class AnchorClassifier(nn.Module):
         self.scale = nn.Parameter(torch.tensor(float(distance_scale_init)))
 
     def forward(self, bottleneck: torch.Tensor) -> torch.Tensor:
-        h = self.projection(bottleneck)
-        dist = ((h.unsqueeze(-2) - self.class_anchors).square().mean(dim=-1) + 1e-10).sqrt()
+        h = self.projection(bottleneck)  # (B, d_y)
+        dist = torch.cdist(h.unsqueeze(1), self.class_anchors.unsqueeze(0)).squeeze(1)  # (B, num_classes)
         return -self.scale * dist  # logits: kelas dengan jarak terkecil -> logit terbesar
 
     def predict_proba(self, bottleneck: torch.Tensor) -> torch.Tensor:

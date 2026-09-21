@@ -40,10 +40,7 @@ def _soft_maximum(probs: torch.Tensor, alpha: float = 200.0, beta: float = 100.0
 @dataclass
 class HiCEMOutput:
     top_concept_probs: torch.Tensor  # (B, C)
-    sub_concept_probs: torch.Tensor  # positive children only: (B, C, K_max)
-    negative_sub_concept_probs: torch.Tensor
-    positive_mask: torch.Tensor  # (C, K_max)
-    negative_mask: torch.Tensor
+    sub_concept_probs: torch.Tensor  # (B, C, K_max) - dipad, 0 di posisi kosong
     task_logits: torch.Tensor
 
 
@@ -92,8 +89,7 @@ class HierarchicalConceptEmbeddingModel(nn.Module):
         self.k_max = max((max(n_pos, n_neg) for n_pos, n_neg in subconcepts_per_concept), default=0)
 
         self.top_generators = nn.ModuleList(
-            [nn.Sequential(nn.Linear(self.backbone.output_dim, embedding_dim * 2), nn.LeakyReLU())
-             for _ in subconcepts_per_concept]
+            [nn.Linear(self.backbone.output_dim, embedding_dim * 2) for _ in subconcepts_per_concept]
         )
         self.scoring_function = nn.Linear(embedding_dim, 1)
 
@@ -112,11 +108,9 @@ class HierarchicalConceptEmbeddingModel(nn.Module):
         h = self.backbone(x)
         batch = x.shape[0]
 
-        bottleneck, top_probs = [], []
+        bottleneck = torch.zeros(batch, 0, device=x.device)
+        top_probs = torch.zeros(batch, 0, device=x.device)
         sub_probs_padded = torch.zeros(batch, self.num_concepts, max(self.k_max, 1), device=x.device)
-        neg_probs_padded = torch.zeros_like(sub_probs_padded)
-        pos_mask = torch.zeros(self.num_concepts, max(self.k_max, 1), dtype=torch.bool, device=x.device)
-        neg_mask = torch.zeros_like(pos_mask)
 
         for i, top_gen in enumerate(self.top_generators):
             top_embedding = top_gen(h)
@@ -125,30 +119,18 @@ class HierarchicalConceptEmbeddingModel(nn.Module):
             pos_mixed, pos_probs, pos_top_prob = self.positive_branches[i](pos_embed)
             neg_mixed, neg_probs, neg_top_prob = self.negative_branches[i](neg_embed)
 
-            # A discovery-only hierarchy has no labelled negative children.
-            # Do not invent a negative target in that case: the parent is
-            # represented by its positive children, exactly the information
-            # available to this controlled HiCEM run.  When both branches
-            # exist, retain the original HiCEM combination.
-            n_pos, n_neg = self.subconcepts_per_concept[i]
-            if n_neg == 0:
-                p_i, mixed = pos_top_prob, pos_mixed
-            elif n_pos == 0:
-                p_i, mixed = 1 - neg_top_prob, neg_mixed
-            else:
-                p_i = (pos_top_prob + (1 - neg_top_prob)) / 2
-                mixed = p_i.unsqueeze(-1) * pos_mixed + (1 - p_i).unsqueeze(-1) * neg_mixed
-            top_probs.append(p_i)
-            bottleneck.append(mixed)
+            p_i = (pos_top_prob + (1 - neg_top_prob)) / 2  # Bab III.3.4: p_hat_i = 1/2(p_hat_i^+ + 1 - p_hat_i^-)
+            top_probs = torch.cat([top_probs, p_i.unsqueeze(-1)], dim=1)
+
+            mixed = p_i.unsqueeze(-1) * pos_mixed + (1 - p_i).unsqueeze(-1) * neg_mixed
+            bottleneck = torch.cat([bottleneck, mixed], dim=1)
 
             if pos_probs.shape[1] > 0:
                 sub_probs_padded[:, i, : pos_probs.shape[1]] = pos_probs
-                pos_mask[i, :pos_probs.shape[1]] = True
             if neg_probs.shape[1] > 0:
-                neg_probs_padded[:, i, : neg_probs.shape[1]] = neg_probs
-                neg_mask[i, :neg_probs.shape[1]] = True
+                sub_probs_padded[:, i, : neg_probs.shape[1]] = torch.maximum(
+                    sub_probs_padded[:, i, : neg_probs.shape[1]], neg_probs
+                )
 
-        task_logits = self.classifier(torch.cat(bottleneck, dim=1))
-        return HiCEMOutput(top_concept_probs=torch.stack(top_probs, dim=1), sub_concept_probs=sub_probs_padded,
-                           negative_sub_concept_probs=neg_probs_padded, positive_mask=pos_mask,
-                           negative_mask=neg_mask, task_logits=task_logits)
+        task_logits = self.classifier(bottleneck)
+        return HiCEMOutput(top_concept_probs=top_probs, sub_concept_probs=sub_probs_padded, task_logits=task_logits)

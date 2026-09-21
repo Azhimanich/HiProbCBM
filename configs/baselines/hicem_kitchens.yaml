@@ -9,36 +9,7 @@ model:
   backbone: clip_vit_l14
   image_size: 224
   embedding_dim: 16
+  n_subconcepts_per_side: 4   # jumlah subkonsep positif & negatif per konsep induk (Bab III.3.4)
 
 train:
   batch_size: 64
-
-# Protokol pembanding terkontrol: CEM awal -> discovery pada split train ->
-# HiCEM memakai child positif hasil discovery. Ini bukan klaim replikasi
-# angka paper HiCEM yang menggunakan setup dan budget penulis asli.
-benchmark:
-  protocol: controlled_discovery
-  comparison_group: kitchens_clip_vitl14
-
-hicem_initial:
-  epochs: 50
-  lr: 0.0001
-  concept_weight: 10.0
-  intervention_probability: 0.25
-
-hicem_discovery:
-  variant: batchtopk
-  activation_threshold: 0.0
-  presence_threshold: 0.5
-  kwargs:
-    latent_dim_ratio: 8
-  train_kwargs:
-    checkpoint_interval: 10
-    n_epochs: 100
-    batch_size: 256
-    lr: 0.0003
-
-hicem_train:
-  epochs: 50
-  lr: 0.0001
-  concept_weight: 10.0

@@ -12,7 +12,3 @@ model:
   image_size: 224
   concept_dim: 16
   classifier_head: linear
-
-benchmark:
-  protocol: controlled_adaptation
-  comparison_group: cub_resnet18

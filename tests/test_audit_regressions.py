@@ -52,46 +52,10 @@ def test_evaluation_restores_a1_and_inception_behavior(tmp_path, monkeypatch):
     assert result["task_accuracy"] == .5
 
 
-def test_hicem_uses_dedicated_discovery_pipeline(tmp_path, monkeypatch):
-    """HiCEM must not fall back to the former all-zero child-label loop."""
-    from hiprobcbm.engine import train_baseline, train_hicem
-    seen = {}
-
-    def run(cfg, device, log_dir, resume):
-        seen.update(cfg=cfg, device=device, log_dir=log_dir, resume=resume)
-
-    monkeypatch.setattr(train_hicem, "run", run)
-    cfg = Config({"baseline": "hicem"})
-    train_baseline.run(cfg, torch.device("cpu"), tmp_path, resume="auto")
-    assert seen == {"cfg": cfg, "device": torch.device("cpu"), "log_dir": tmp_path, "resume": "auto"}
-
-
-def test_hicem_evaluator_uses_saved_discovery_hierarchy(tmp_path, monkeypatch):
-    from hiprobcbm.engine import evaluate
-    from hiprobcbm.utils.checkpoint import save_artifact
-
-    cfg = {"dataset": "tiny", "baseline": "hicem", "data": {},
-           "model": {"backbone": "resnet18", "image_size": 2, "embedding_dim": 3, "pretrained": False},
-           "train": {"batch_size": 2}}
-    (tmp_path / "run_manifest.json").write_text(json.dumps({"config": cfg}))
-    save_artifact({"subconcepts_per_concept": [1, 1]}, tmp_path / "hicem_pseudo_hierarchy.pt")
-    torch.save({}, tmp_path / "hicem_best.pth")
-
-    class Model(nn.Module):
-        def __init__(self, *args, **kwargs):
-            super().__init__()
-
-        def forward(self, x):
-            return SimpleNamespace(task_logits=torch.tensor([[2., 0.], [0., 2.]]),
-                                   top_concept_probs=torch.tensor([[.8, .2], [.2, .8]]))
-
-    batch = {"image": torch.zeros(2, 3, 2, 2), "label": torch.tensor([0, 1]),
-             "concepts": torch.tensor([[1., 0.], [0., 1.]])}
-    monkeypatch.setattr(evaluate, "HierarchicalConceptEmbeddingModel", Model)
-    monkeypatch.setattr(evaluate, "build_dataset", lambda *a, **k: SimpleNamespace(
-        num_concepts=2, num_classes=2, get_dataloader=lambda *a, **k: [batch]))
-    report = evaluate.evaluate_baseline_checkpoint(Config({}), tmp_path / "hicem_best.pth", torch.device("cpu"))
-    assert report["task_accuracy"] == 1.0
+def test_hicem_placeholder_cannot_start_expensive_training(tmp_path):
+    from hiprobcbm.engine import train_baseline
+    with pytest.raises(ValueError, match="placeholder"):
+        train_baseline.run(Config({"baseline": "hicem"}), torch.device("cpu"), tmp_path)
 
 
 def test_stage2_rejects_dead_child_legacy_artifact_but_accepts_single_fallback(tmp_path):

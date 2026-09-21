@@ -17,8 +17,6 @@ from hiprobcbm.engine.train_baseline import build_model, training_step
 from hiprobcbm.engine.train_stage2 import evaluate_stage2
 from hiprobcbm.metrics import expected_calibration_error
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
-from hiprobcbm.models.baselines.hicem import HierarchicalConceptEmbeddingModel
-from hiprobcbm.utils.checkpoint import load_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -34,23 +32,12 @@ def saved_config(checkpoint_path: Path, fallback: Config) -> Config:
 
 def evaluate_baseline_checkpoint(cfg: Config, checkpoint_path: Path, device: torch.device) -> dict[str, float]:
     cfg = saved_config(checkpoint_path, cfg)
+    if cfg.baseline == "hicem":
+        raise ValueError("HiCEM placeholder tidak boleh dimasukkan tabel hasil; lihat audit A01/B05.")
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
     test_loader = dataset.get_dataloader("test", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
 
-    if cfg.baseline == "hicem":
-        hierarchy_path = Path(checkpoint_path).parent / "hicem_pseudo_hierarchy.pt"
-        if not hierarchy_path.exists():
-            raise FileNotFoundError(f"Artifact discovery HiCEM tidak ditemukan: {hierarchy_path}")
-        hierarchy = load_artifact(hierarchy_path)
-        counts = hierarchy["subconcepts_per_concept"]
-        if len(counts) != dataset.num_concepts or any(type(k) is not int or k < 1 for k in counts):
-            raise ValueError("Artifact hierarchy HiCEM tidak sesuai dengan dataset checkpoint.")
-        model = HierarchicalConceptEmbeddingModel(
-            cfg.model.backbone, dataset.num_classes, [(count, 0) for count in counts],
-            embedding_dim=cfg.model.get("embedding_dim", 16), pretrained=cfg.model.get("pretrained", True),
-        ).to(device)
-    else:
-        model = build_model(cfg.baseline, cfg, dataset).to(device)
+    model = build_model(cfg.baseline, cfg, dataset).to(device)
     model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
     model.eval()
 
@@ -59,14 +46,7 @@ def evaluate_baseline_checkpoint(cfg: Config, checkpoint_path: Path, device: tor
     all_probs, all_labels, all_cprobs, all_clabels = [], [], [], []
     with torch.no_grad():
         for batch in test_loader:
-            if cfg.baseline == "hicem":
-                out = model(batch["image"].to(device))
-                probs, cprobs = torch.softmax(out.task_logits, dim=-1), out.top_concept_probs
-                y, c = batch["label"].to(device), batch["concepts"].to(device)
-            else:
-                _, _, probs, cprobs, y, c = training_step(
-                    cfg.baseline, model, batch, device, cfg.train.get("concept_weight", 1.0)
-                )
+            _, _, probs, cprobs, y, c = training_step(cfg.baseline, model, batch, device, cfg.train.get("concept_weight", 1.0))
             all_probs.append(probs.cpu())
             all_labels.append(y.cpu())
             all_cprobs.append(cprobs.cpu())
