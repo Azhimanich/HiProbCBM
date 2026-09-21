@@ -17,6 +17,10 @@ model:
   concept_dim: 16
   pretrained: true   # frozen di dalam Backbone (lihat models/backbones.py)
 
+benchmark:
+  protocol: controlled_hierarchical
+  comparison_group: kitchens_clip_vitl14
+
 train:
   batch_size: 64     # backbone beku -> throughput lebih tinggi, batch boleh lebih besar
 

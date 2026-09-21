@@ -12,3 +12,7 @@ model:
   image_size: 299
   concept_dim: 16
   classifier_head: linear
+
+benchmark:
+  protocol: controlled_adaptation
+  comparison_group: cub_inception_v3

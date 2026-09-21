@@ -52,10 +52,9 @@ def probcbm_loss(concept_probs, concept_labels, task_logits_per_sample, task_lab
     l_concept_bce = concept_bce_loss(concept_probs, concept_labels)
     l_kl = kl_loss
 
-    n_samples = task_logits_per_sample.shape[1]
-    labels_expanded = task_labels.unsqueeze(1).expand(-1, n_samples).reshape(-1)
-    logits_flat = task_logits_per_sample.reshape(-1, task_logits_per_sample.shape[-1])
-    l_class = task_ce_loss(logits_flat, labels_expanded)
+    # ProbCBM's objective is NLL of the MC-averaged class probability,
+    # rather than the mean of per-sample cross entropies.
+    l_class = F.nll_loss(torch.softmax(task_logits_per_sample, dim=-1).mean(dim=1).clamp_min(1e-8).log(), task_labels)
 
     total = l_class + concept_weight * l_concept_bce + lambda_kl * l_kl
     return total, {"concept_bce": l_concept_bce.detach(), "kl": l_kl.detach(), "class": l_class.detach()}

@@ -21,7 +21,8 @@ from hiprobcbm.data import build_dataset
 from hiprobcbm.losses import hiprobcbm_stage1_loss
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage1
 from hiprobcbm.models.subconcept_discovery import PseudoHierarchy, build_pseudo_hierarchy
-from hiprobcbm.utils.checkpoint import RunCheckpoint, run_identity, save_artifact, load_artifact, capture_rng, restore_rng, require_finite, file_hash
+from hiprobcbm.utils.checkpoint import run_identity, save_artifact, load_artifact, capture_rng, restore_rng, require_finite, file_hash
+from hiprobcbm.engine.protocol import checkpoint_for, optimizer_for
 
 logger = logging.getLogger(__name__)
 
@@ -108,17 +109,22 @@ def run(cfg: Config, device: torch.device, log_dir: Path, resume="auto") -> Pseu
         pretrained=cfg.model.get("pretrained", True),
     ).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr_stage1)
+    optimizer = optimizer_for(model, cfg.train, cfg.train.lr_stage1)
 
     identity = run_identity(cfg, device)
-    checkpoint = RunCheckpoint(log_dir, "stage1", model, optimizer, identity, cfg.train.epochs_stage1, resume)
-    for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage1):
-        train_stats = train_one_epoch(model, train_loader, optimizer, device, cfg.train.get("lambda_kl", 5e-5),
-                                      cfg.model.get("n_mc_samples_train", 8))
-        val_stats = evaluate_stage1(model, val_loader, device, cfg.model.get("n_mc_samples_eval", 32))
-        logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_stats)
+    checkpoint = checkpoint_for(log_dir, "stage1", model, optimizer, identity, cfg.train.epochs_stage1, cfg.train, resume)
+    if checkpoint.completed:
+        logger.info("Stage 1 checkpoint sudah selesai; ekspor bobot terbaik.")
+    else:
+        for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage1):
+            train_stats = train_one_epoch(model, train_loader, optimizer, device, cfg.train.get("lambda_kl", 5e-5),
+                                          cfg.model.get("n_mc_samples_train", 8))
+            val_stats = evaluate_stage1(model, val_loader, device, cfg.model.get("n_mc_samples_eval", 32))
+            logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_stats)
 
-        checkpoint.save_epoch(epoch, val_stats["concept_accuracy"])
+            checkpoint.save_epoch(epoch, val_stats["concept_accuracy"])
+            if checkpoint.completed:
+                break
     checkpoint.export_weights()
 
     # Bab IV.5.1.3-4.5.1.4: automatic subconcept discovery pada data train.

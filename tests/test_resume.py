@@ -114,6 +114,31 @@ def test_nonfinite_does_not_replace_checkpoint(tmp_path):
     assert file_hash(run.path) == before
 
 
+def test_scheduler_and_early_stopping_resume_are_verified(tmp_path):
+    model = nn.Linear(3, 1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=.1, momentum=.9)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", patience=0)
+    run = RunCheckpoint(tmp_path, "scheduled", model, optimizer, {"config": {"seed": 7}}, 5,
+                        scheduler=scheduler, patience=1)
+    x = torch.randn(4, 3)
+    model(x).sum().backward()
+    optimizer.step()
+    run.save_epoch(0, .8)
+    optimizer.zero_grad()
+    model(x).sum().backward()
+    optimizer.step()
+    run.save_epoch(1, .7)
+    assert run.completed and run.start_epoch == 2
+
+    resumed_model = nn.Linear(3, 1)
+    resumed_optimizer = torch.optim.SGD(resumed_model.parameters(), lr=.1, momentum=.9)
+    resumed_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(resumed_optimizer, mode="max", patience=0)
+    resumed = RunCheckpoint(tmp_path, "scheduled", resumed_model, resumed_optimizer, {"config": {"seed": 7}}, 5,
+                            scheduler=resumed_scheduler, patience=1)
+    assert resumed.completed and resumed.bad_epochs == 1
+    assert resumed_scheduler.state_dict() == scheduler.state_dict()
+
+
 def test_interruption_during_atomic_write_preserves_last_good_epoch(tmp_path, monkeypatch):
     run = new_run(tmp_path)
     epoch(run, 0)

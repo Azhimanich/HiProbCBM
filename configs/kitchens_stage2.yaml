@@ -14,5 +14,9 @@ model:
   concept_dim: 16
   use_attention: true
 
+benchmark:
+  protocol: controlled_hierarchical
+  comparison_group: kitchens_clip_vitl14
+
 train:
   batch_size: 64

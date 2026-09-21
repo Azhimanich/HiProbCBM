@@ -13,5 +13,9 @@ model:
   image_size: 299
   concept_dim: 16
 
+benchmark:
+  protocol: controlled_hierarchical
+  comparison_group: cub_inception_v3
+
 sae:
   variant: kl   # ganti ke 'batchtopk' untuk HiProbCBM-A3 (Tabel 4.8)

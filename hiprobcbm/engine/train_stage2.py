@@ -16,7 +16,8 @@ from hiprobcbm.data import build_dataset
 from hiprobcbm.losses import hiprobcbm_stage2_loss
 from hiprobcbm.metrics import compute_standard_metrics
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
-from hiprobcbm.utils.checkpoint import RunCheckpoint, run_identity, require_finite, load_artifact
+from hiprobcbm.utils.checkpoint import run_identity, require_finite, load_artifact
+from hiprobcbm.engine.protocol import checkpoint_for, optimizer_for
 
 logger = logging.getLogger(__name__)
 
@@ -157,15 +158,17 @@ def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path, 
         use_attention=cfg.model.get("use_attention", True),  # False -> HiProbCBM-A1 (Tabel 4.8)
     ).to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr_stage2)
+    optimizer = optimizer_for(model, cfg.train, cfg.train.lr_stage2)
 
-    checkpoint = RunCheckpoint(log_dir, "stage2", model, optimizer,
-                               run_identity(cfg, device, [stage1_log_dir / "pseudo_hierarchy.pt"]),
-                               cfg.train.epochs_stage2, resume)
+    checkpoint = checkpoint_for(log_dir, "stage2", model, optimizer,
+                                run_identity(cfg, device, [stage1_log_dir / "pseudo_hierarchy.pt"]),
+                                cfg.train.epochs_stage2, cfg.train, resume)
     for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage2):
         train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, path_to_row, optimizer, device, cfg.train)
         val_report = evaluate_stage2(model, val_loader, device)
         logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_report.as_dict())
 
         checkpoint.save_epoch(epoch, val_report.task_accuracy)
+        if checkpoint.completed:
+            break
     checkpoint.export_weights()

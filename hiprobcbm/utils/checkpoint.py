@@ -22,7 +22,7 @@ import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
-SCHEMA = 1
+SCHEMA = 2
 
 
 def file_hash(path):
@@ -156,7 +156,7 @@ def run_identity(cfg, device, artifacts=()):
 
 
 class RunCheckpoint:
-    def __init__(self, log_dir, name, model, optimizer, identity, total_epochs, resume="auto"):
+    def __init__(self, log_dir, name, model, optimizer, identity, total_epochs, resume="auto", scheduler=None, patience=None):
         self.directory = Path(log_dir)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path = self.directory / f"{name}_resume.pth"
@@ -165,6 +165,9 @@ class RunCheckpoint:
         self.identity, self.total_epochs = identity, total_epochs
         self.epoch, self.best_epoch, self.best_val = -1, -1, -1.0
         self.best_model = None
+        self.scheduler, self.patience = scheduler, patience
+        self.bad_epochs = 0
+        self.history = []
         self.current_valid = False
         if total_epochs < 1:
             raise ValueError("Jumlah epoch harus positif.")
@@ -183,6 +186,9 @@ class RunCheckpoint:
             self.optimizer.load_state_dict(payload["optimizer"])
             self.epoch, self.best_epoch = payload["epoch"], payload["best_epoch"]
             self.best_val, self.best_model = payload["best_val"], payload["best_model"]
+            self.bad_epochs, self.history = payload["bad_epochs"], payload["history"]
+            if scheduler is not None:
+                scheduler.load_state_dict(payload["scheduler"])
             restore_rng(payload["rng"])
             logger.info("RESUME VALID: %s | epoch selesai=%d/%d | lanjut epoch=%d | best_val=%.6f (epoch=%d)",
                         self.path, self.epoch + 1, total_epochs, self.epoch + 2, self.best_val, self.best_epoch + 1)
@@ -218,10 +224,15 @@ class RunCheckpoint:
 
     def _validate(self, payload):
         required = {"schema", "name", "identity", "epoch", "best_epoch", "best_val", "model", "best_model", "optimizer", "rng"}
+        required |= {"optimizer_type", "scheduler", "bad_epochs", "history", "patience"}
         if not isinstance(payload, dict) or not required <= payload.keys() or payload["schema"] != SCHEMA:
             raise ValueError("Format checkpoint tidak lengkap/legacy; resume ditolak.")
         if payload["name"] != self.name:
             raise ValueError("Jenis stage/baseline checkpoint berbeda.")
+        if payload["optimizer_type"] != type(self.optimizer).__name__ or payload["patience"] != self.patience:
+            raise ValueError("Optimizer/early stopping berbeda.")
+        if (payload["scheduler"] is None) != (self.scheduler is None):
+            raise ValueError("Scheduler checkpoint berbeda.")
         for key in self.identity:
             if payload["identity"].get(key) != self.identity[key]:
                 raise ValueError(f"Resume ditolak: {key} berbeda (config/seed, kode, data, runtime atau hierarchy). "
@@ -250,14 +261,15 @@ class RunCheckpoint:
                 raise ValueError("Jumlah parameter optimizer berbeda.")
             for index, param in zip(saved["params"], current["params"]):
                 state = payload["optimizer"]["state"].get(index, {})
-                for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq", "momentum_buffer"):
                     if key in state and state[key].shape != param.shape:
                         raise ValueError("Shape state Adam tidak cocok.")
         require_finite(payload["optimizer"])
         if epoch >= 0 and not payload["optimizer"]["state"]:
             raise ValueError("Optimizer state kosong setelah training; bukan resume lengkap.")
         for state in payload["optimizer"]["state"].values():
-            if not {"step", "exp_avg", "exp_avg_sq"} <= state.keys():
+            keys = {"momentum_buffer"} if isinstance(self.optimizer, torch.optim.SGD) else {"step", "exp_avg", "exp_avg_sq"}
+            if not keys <= state.keys():
                 raise ValueError("State Adam tidak lengkap.")
         require_finite(payload["best_val"])
         # Validate RNG on isolated generators; do not consume live RNG before load.
@@ -276,6 +288,10 @@ class RunCheckpoint:
                    "epoch": self.epoch, "best_epoch": self.best_epoch, "best_val": self.best_val,
                    "model": cpu_copy(self.model.state_dict()), "best_model": self.best_model,
                    "optimizer": cpu_copy(self.optimizer.state_dict()), "rng": capture_rng()}
+        payload.update(optimizer_type=type(self.optimizer).__name__,
+                       scheduler=self.scheduler.state_dict() if self.scheduler is not None else None,
+                       bad_epochs=self.bad_epochs, history=self.history, patience=self.patience,
+                       completed=self.completed)
         require_finite(payload["model"])
         require_finite(payload["optimizer"])
         if self.epoch >= 0 and not payload["optimizer"]["state"]:
@@ -294,6 +310,10 @@ class RunCheckpoint:
     def start_epoch(self):
         return self.epoch + 1
 
+    @property
+    def completed(self):
+        return self.start_epoch == self.total_epochs or (self.patience is not None and self.bad_epochs >= self.patience)
+
     def save_epoch(self, epoch, val):
         require_finite(val)
         if not self.epoch < epoch < self.total_epochs:
@@ -303,13 +323,22 @@ class RunCheckpoint:
         if improved:
             self.best_val, self.best_epoch = float(val), epoch
             self.best_model = cpu_copy(self.model.state_dict())
+            self.bad_epochs = 0
+        else:
+            self.bad_epochs += 1
+        if self.scheduler is not None:
+            if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.scheduler.step(val)
+            else:
+                self.scheduler.step()
+        self.history.append({"epoch": epoch, "val": float(val), "lr": [g["lr"] for g in self.optimizer.param_groups]})
         self._save()
         if improved:
             atomic_save(self.best_model, self.directory / f"{self.name}_best.pth")
         logger.info("CHECKPOINT SAVED: %s | epoch selesai=%d/%d | best_val=%.6f", self.path, epoch + 1, self.total_epochs, self.best_val)
 
     def export_weights(self):
-        if self.start_epoch != self.total_epochs:
+        if not self.completed:
             raise ValueError("Training belum selesai; last tidak boleh menjadi marker selesai.")
         atomic_save(self.model.state_dict(), self.directory / f"{self.name}_last.pth")
         atomic_save(self.best_model, self.directory / f"{self.name}_best.pth")

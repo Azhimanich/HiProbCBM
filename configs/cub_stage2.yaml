@@ -13,3 +13,7 @@ model:
   image_size: 299
   concept_dim: 16
   use_attention: true   # false -> HiProbCBM-A1 (Tabel 4.8), lihat scripts/run_ablation.py
+
+benchmark:
+  protocol: controlled_hierarchical
+  comparison_group: cub_inception_v3

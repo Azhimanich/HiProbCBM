@@ -12,3 +12,7 @@ model:
   image_size: 224
   concept_dim: 16
   classifier_head: anchor
+
+benchmark:
+  protocol: adaptation_ablation
+  comparison_group: cub_resnet18

@@ -65,6 +65,17 @@ def test_probcbm_anchor_classifier_variant():
     assert out.task_probs.shape == (BATCH, NUM_CLASSES)
 
 
+def test_probcbm_pem_anchor_variant():
+    model = ProbabilisticConceptBottleneckModel(
+        "resnet18", NUM_CONCEPTS, NUM_CLASSES, concept_dim=8, pretrained=False,
+        classifier_head="anchor", implementation="reference", n_mc_samples_train=2,
+    )
+    x, _, _ = _dummy_batch()
+    out = model(x)
+    assert out.concept_probs.shape == (BATCH, NUM_CONCEPTS)
+    assert torch.isfinite(out.concept_probs).all()
+
+
 def test_hicem_forward():
     subconcepts_per_concept = [(2, 2) for _ in range(NUM_CONCEPTS)]
     model = HierarchicalConceptEmbeddingModel(
@@ -88,6 +99,16 @@ def test_hicem_concept_without_subconcepts_falls_back():
     out = model(x)
     assert out.task_logits.shape == (BATCH, NUM_CLASSES)
     assert not torch.isnan(out.task_logits).any()
+
+
+def test_hicem_discovery_only_children_do_not_create_negative_targets():
+    model = HierarchicalConceptEmbeddingModel(
+        "resnet18", NUM_CLASSES, [(2, 0) for _ in range(NUM_CONCEPTS)], embedding_dim=8, pretrained=False
+    )
+    x, _, _ = _dummy_batch()
+    out = model(x)
+    assert out.positive_mask.all()
+    assert not out.negative_mask.any()
 
 
 if __name__ == "__main__":
