@@ -43,6 +43,8 @@ penyelesaian seluruh matriks eksperimen belum diverifikasi. Lihat
 untuk status pembanding, serta [panduan resume](docs/resume_training.md)
 sebelum menjalankan sel 15/16/17. Checkpoint lengkap tersimpan per epoch;
 bobot dari kode lama tidak otomatis menjadi checkpoint resume penuh.
+Konfigurasi yang dipadankan terhadap hasil ProbCBM dan HiCEM dijelaskan di
+[protokol hasil baseline](docs/reported_baseline_protocol.md).
 
 ## Peta subbab proposal -> kode
 

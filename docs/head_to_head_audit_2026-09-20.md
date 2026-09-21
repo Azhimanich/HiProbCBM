@@ -21,6 +21,11 @@ baseline internal yang tidak identik dengan source referensi tetap ditahan;
 runner untuk menjalankan dua repository referensi secara terpisah perlu
 menetapkan adapter data dan environment tanpa mengubah kode upstream.
 
+Matriks yang dikunci untuk membandingkan dengan **angka yang dilaporkan** dan
+empat YAML HiProbCBM terkait ada di
+[reported_baseline_protocol.md](reported_baseline_protocol.md). CUB/Inception
+tidak lagi menjadi pasangan ProbCBM; pasangan itu adalah CUB/ResNet18.
+
 ## Pembaruan implementasi dan klasifikasi keputusan
 
 Audit diperiksa ulang pada 20 September 2026 setelah permintaan resume Colab.

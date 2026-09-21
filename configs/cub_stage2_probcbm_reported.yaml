@@ -1,0 +1,27 @@
+# Stage 2 pasangan configs/cub_stage1_probcbm_reported.yaml.
+experiment_name: cub_stage2_probcbm_reported_resnet18
+dataset: cub
+
+data:
+  data_root: datasets/CUB_200_2011
+
+model:
+  backbone: resnet18
+  image_size: 224
+  concept_dim: 16
+  pretrained: true
+  n_mc_samples_train: 50
+  n_mc_samples_eval: 50
+  use_attention: true
+
+train:
+  batch_size: 128
+  epochs_stage2: 20
+  scheduler: cosine
+  patience: null
+
+benchmark:
+  type: reported_baseline_comparison
+  baseline: ProbCBM
+  source_commit: 912fc4e
+  locked_contract: cub_class_attr_data_10_resnet18_224
