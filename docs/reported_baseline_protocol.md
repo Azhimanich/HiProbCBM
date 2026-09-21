@@ -12,12 +12,29 @@ yang dilaporkan**, bukan eksperimen head-to-head literal.
 | --- | --- | --- | --- | --- |
 | P | Stage 1 + Stage 2 `probcbm_reported` | ProbCBM (Kim dkk., 2023) | CUB-200-2011, split `class_attr_data_10`, **ResNet18 pretrained**, 224 px, 112 konsep, 200 kelas | Comparable terhadap hasil yang dilaporkan ProbCBM |
 | H | Stage 1 + Stage 2 `hicem_reported` | HiCEM (Hill dkk., 2026) | PseudoKitchens **V2**, split official, **CLIP ViT-L/14 frozen**, 224 px, urutan parent dan recipe class official | Comparable terhadap hasil yang dilaporkan HiCEM |
-| A | Inception-v3/CUB dan seluruh variasinya | Tidak ada angka baseline paper yang identik | Sesuai konfigurasi eksperimen | Ablasi/internal; bukan baris pembanding ProbCBM atau HiCEM |
+| A1-A3 | Variasi HiProbCBM pada setiap baris P dan H | Model HiProbCBM utama pada kontrak P atau H yang sama | Dataset, backbone, split, seed, dan budget mengikuti baris P atau H; hanya komponen ablasi yang berubah | Ablasi internal untuk menguji kontribusi HiProbCBM, bukan angka pembanding paper |
+
+Eksperimen CUB/Inception-v3 lama tetap dapat dipakai sebagai pilot atau studi
+internal, tetapi tidak ditempatkan dalam tabel pembandingan terhadap ProbCBM
+atau HiCEM.
 
 HiCEM juga menyediakan konfigurasi CUB/CLIP di source-nya. Itu tidak masuk
 tabel utama sampai tabel paper yang dikutip dan kontrak konsep/splitnya telah
 diverifikasi satu-per-satu. Jangan memasangkannya dengan CUB/Inception atau
 CUB/ResNet18.
+
+## Ablasi HiProbCBM yang dijalankan pada notebook
+
+- **A1:** mengganti learned attention dengan bobot agregasi seragam pada
+  Tahap 2. Tahap 1 dan `pseudo_hierarchy.pt` dipakai bersama dengan model utama.
+- **A2:** menetapkan `lambda_kl=0` pada Tahap 2. Tahap 1 dan hierarchy tetap
+  sama dengan model utama.
+- **A3:** mengganti SAE KL-sparsity pada Tahap 1 dengan BatchTopK SAE, lalu
+  melatih Tahap 2 dari hierarchy A3 itu sendiri.
+
+Setiap A1-A3 harus dijalankan tiga seed pada pasangan P dan/atau H yang ingin
+ditulis dalam tabel ablation. Mereka menjawab kontribusi komponen HiProbCBM;
+mereka bukan syarat untuk menyamakan implementasi ProbCBM atau HiCEM.
 
 ## Aturan yang wajib dibuktikan sebelum hasil dicantumkan
 

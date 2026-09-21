@@ -1,0 +1,30 @@
+# A3 untuk protokol HiCEM reported: hanya metode discovery yang berubah.
+experiment_name: kitchens_stage1_hicem_reported_clip_batchtopk
+dataset: kitchens
+
+data:
+  data_root: datasets/PseudoKitchens
+
+model:
+  backbone: clip_vit_l14
+  image_size: 224
+  concept_dim: 16
+  pretrained: true
+
+train:
+  batch_size: 64
+  epochs_stage1: 300
+  patience: 15
+
+sae:
+  variant: batchtopk
+  kwargs:
+    latent_dim_ratio: 8
+    top_k: 32
+    aux_top_k: 128
+
+benchmark:
+  type: reported_baseline_comparison
+  baseline: HiCEM
+  source_commit: 41802a5
+  locked_contract: pseudokitchens_v2_clip_vitl14_frozen
