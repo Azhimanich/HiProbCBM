@@ -75,6 +75,26 @@ class _CLIPBackbone(Backbone):
         return features.float()
 
 
+class _CachedCLIPFeatureBackbone(Backbone):
+    """Identity encoder for representations materialised by feature_cache.
+
+    The input is already a ``(B, 768)`` CLIP ViT-L/14 representation.  Keeping
+    it behind the normal Backbone interface means the two HiProbCBM stages do
+    not need a separate model architecture for the frozen-foundation protocol.
+    """
+
+    def __init__(self):
+        super().__init__(nn.Identity(), output_dim=768, frozen=True)
+
+    def _extract(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim != 2 or x.shape[1] != self.output_dim:
+            raise ValueError(
+                "Cache CLIP harus berbentuk (batch, 768); jangan memakai "
+                "use_cached_features dengan tensor gambar mentah."
+            )
+        return x.float()
+
+
 def _strip_classifier(model: nn.Module) -> nn.Module:
     """Ganti fc/classifier terakhir dengan Identity supaya keluaran adalah
     fitur pooled, bukan logit 1000-kelas ImageNet."""
@@ -83,8 +103,12 @@ def _strip_classifier(model: nn.Module) -> nn.Module:
     return model
 
 
-def build_backbone(name: str, pretrained: bool = True) -> Backbone:
+def build_backbone(name: str, pretrained: bool = True, use_cached_features: bool = False) -> Backbone:
     name = name.lower()
+    if use_cached_features:
+        if name != "clip_vit_l14":
+            raise ValueError("use_cached_features hanya tersedia untuk backbone clip_vit_l14.")
+        return _CachedCLIPFeatureBackbone()
     if name == "resnet18":
         weights = tv_models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
         net = tv_models.resnet18(weights=weights)

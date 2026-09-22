@@ -1,5 +1,5 @@
 # Tahap 2 A3 untuk pseudo hierarchy dari BatchTopK SAE pada protokol HiCEM.
-experiment_name: kitchens_stage2_hicem_reported_clip_batchtopk_a3
+experiment_name: kitchens_stage2_hicem_reported_clip_cached_batchtopk_a3
 dataset: kitchens
 
 data:
@@ -11,9 +11,11 @@ model:
   concept_dim: 16
   pretrained: true
   use_attention: true
+  use_cached_features: true
+  feature_cache_batch_size: 64
 
 train:
-  batch_size: 64
+  batch_size: 256
   epochs_stage2: 300
   patience: 15
 

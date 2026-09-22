@@ -14,3 +14,11 @@ Jalankan satu notebook sampai selesai, lalu pindah ke notebook berikutnya. Semua
 | 8 | `08_hicem_a3.ipynb` | PseudoKitchens processed di Drive |
 
 A1 dan A2 hanya melatih Tahap 2; keduanya memverifikasi lalu memakai `pseudo_hierarchy.pt` dari notebook utama. A3 menjalankan Tahap 1 dan Tahap 2 karena hierarchy BatchTopK berbeda.
+
+Untuk kelompok HiCEM/PseudoKitchens, pemanggilan pertama membuat cache fitur
+CLIP ViT-L/14 untuk split train dan validation di
+`PseudoKitchens/representation_cache/clip_vitl14/`. Cache memakai preprocessing
+resmi CLIP, checksum SHA-256, dan menjadi bagian dari identitas checkpoint.
+Training berikutnya (termasuk A1/A2/A3) memakai tensor tersebut, sehingga tidak
+menjalankan encoder CLIP atau membaca gambar Drive di setiap epoch. Cache test
+baru dibuat saat evaluasi final.

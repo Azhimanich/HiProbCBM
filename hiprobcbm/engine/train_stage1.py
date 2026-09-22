@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from hiprobcbm.config import Config
 from hiprobcbm.data import build_dataset
+from hiprobcbm.data.feature_cache import cached_feature_loader, prepare_clip_feature_cache
 from hiprobcbm.losses import hiprobcbm_stage1_loss
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage1
 from hiprobcbm.models.subconcept_discovery import PseudoHierarchy, build_pseudo_hierarchy
@@ -89,29 +90,54 @@ def _stack_padded_pseudo_labels(hierarchy: PseudoHierarchy) -> torch.Tensor:
 
 def run(cfg: Config, device: torch.device, log_dir: Path, resume="auto") -> PseudoHierarchy:
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
-    train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2))
-    val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False)
+    use_cached_features = cfg.model.get("use_cached_features", False)
+    feature_artifacts: list[Path] = []
+    if use_cached_features:
+        payloads, feature_artifacts = prepare_clip_feature_cache(
+            dataset,
+            image_size=cfg.model.image_size,
+            batch_size=cfg.model.get("feature_cache_batch_size", cfg.train.batch_size),
+            num_workers=cfg.train.get("num_workers", 2),
+            device=device,
+            splits=("train", "val"),
+        )
+        train_loader = cached_feature_loader(
+            payloads["train"], batch_size=cfg.train.batch_size, shuffle=True,
+            num_workers=cfg.train.get("num_workers", 2), drop_last=True,
+        )
+        val_loader = cached_feature_loader(
+            payloads["val"], batch_size=cfg.train.batch_size, shuffle=False,
+            num_workers=cfg.train.get("num_workers", 2), drop_last=False,
+        )
+        discovery_loader = cached_feature_loader(
+            payloads["train"], batch_size=cfg.train.batch_size, shuffle=False,
+            num_workers=cfg.train.get("num_workers", 2), drop_last=False,
+        )
+    else:
+        train_loader = dataset.get_dataloader("train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2))
+        val_loader = dataset.get_dataloader("val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False)
     # Loader KHUSUS untuk automatic subconcept discovery: shuffle=False dan
     # drop_last=False supaya SETIAP sampel train terekstrak tepat sekali,
     # dan `path` per-batch bisa dipakai Tahap 2 untuk mencocokkan
     # pseudo-label ke citra yang benar (lihat `extract_means_for_discovery`
     # - ini memperbaiki bug kritis: `train_loader` di atas memakai
     # shuffle=True, jadi TIDAK BOLEH dipakai langsung untuk ekstraksi mean).
-    discovery_loader = dataset.get_dataloader(
-        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size,
-        shuffle=False, drop_last=False, augment=False, num_workers=cfg.train.get("num_workers", 2),
-    )
+        discovery_loader = dataset.get_dataloader(
+            "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size,
+            shuffle=False, drop_last=False, augment=False, num_workers=cfg.train.get("num_workers", 2),
+        )
 
     model = HiProbCBMStage1(
         backbone_name=cfg.model.backbone,
         num_concepts=dataset.num_concepts,
         concept_dim=cfg.model.concept_dim,
         pretrained=cfg.model.get("pretrained", True),
+        use_cached_features=use_cached_features,
     ).to(device)
 
     optimizer = optimizer_for(model, cfg.train, cfg.train.lr_stage1)
 
-    identity = run_identity(cfg, device)
+    identity = run_identity(cfg, device, feature_artifacts)
     checkpoint = checkpoint_for(log_dir, "stage1", model, optimizer, identity, cfg.train.epochs_stage1, cfg.train, resume)
     if checkpoint.completed:
         logger.info("Stage 1 checkpoint sudah selesai; ekspor bobot terbaik.")

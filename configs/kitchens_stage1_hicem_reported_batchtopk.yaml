@@ -1,5 +1,5 @@
 # A3 untuk protokol HiCEM reported: hanya metode discovery yang berubah.
-experiment_name: kitchens_stage1_hicem_reported_clip_batchtopk
+experiment_name: kitchens_stage1_hicem_reported_clip_cached_batchtopk
 dataset: kitchens
 
 data:
@@ -10,9 +10,11 @@ model:
   image_size: 224
   concept_dim: 16
   pretrained: true
+  use_cached_features: true
+  feature_cache_batch_size: 64
 
 train:
-  batch_size: 64
+  batch_size: 256
   epochs_stage1: 300
   patience: 15
 

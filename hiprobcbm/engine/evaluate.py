@@ -13,6 +13,7 @@ import torch
 
 from hiprobcbm.config import Config
 from hiprobcbm.data import build_dataset
+from hiprobcbm.data.feature_cache import cached_feature_loader, prepare_clip_feature_cache
 from hiprobcbm.engine.train_baseline import build_model, training_step
 from hiprobcbm.engine.train_stage2 import evaluate_stage2
 from hiprobcbm.metrics import expected_calibration_error
@@ -63,7 +64,22 @@ def evaluate_hiprobcbm_checkpoint(
 ) -> dict[str, float]:
     cfg = saved_config(stage2_checkpoint, cfg)
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
-    test_loader = dataset.get_dataloader("test", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
+    use_cached_features = cfg.model.get("use_cached_features", False)
+    if use_cached_features:
+        payloads, _ = prepare_clip_feature_cache(
+            dataset,
+            image_size=cfg.model.image_size,
+            batch_size=cfg.model.get("feature_cache_batch_size", cfg.train.batch_size),
+            num_workers=cfg.train.get("num_workers", 2),
+            device=device,
+            splits=("test",),
+        )
+        test_loader = cached_feature_loader(
+            payloads["test"], batch_size=cfg.train.batch_size, shuffle=False,
+            num_workers=cfg.train.get("num_workers", 2), drop_last=False,
+        )
+    else:
+        test_loader = dataset.get_dataloader("test", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, shuffle=False)
 
     model = HiProbCBMStage2(
         backbone_name=cfg.model.backbone,
@@ -74,6 +90,7 @@ def evaluate_hiprobcbm_checkpoint(
         n_mc_samples_train=cfg.model.get("n_mc_samples_train", 8),
         n_mc_samples_eval=cfg.model.get("n_mc_samples_eval", 32),
         use_attention=cfg.model.get("use_attention", True),
+        use_cached_features=use_cached_features,
     ).to(device)
     if cfg.model.backbone == "inception_v3":
         # torchvision's flag is not a tensor in state_dict. Match the training

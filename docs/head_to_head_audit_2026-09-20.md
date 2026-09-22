@@ -46,6 +46,7 @@ Perubahan kode ini belum berarti seluruh baseline sudah menjadi replikasi paper.
 | D02 | Ekstraksi discovery memakai transform evaluasi pada **sampel train**, tanpa augmentasi acak | Sampling MC masih acak dan RNG disimpan; data test tidak masuk discovery |
 | E05 | Seed 0 ditangani benar; seed efektif disimpan dan pergantian seed pada folder lama ditolak; notebook memberi pola direktori per seed | Tiga seed belum diluncurkan otomatis; hasil mean/std belum tersedia |
 | A01/B05 | Training/evaluasi HiCEM internal placeholder ditolak; entrinya ditandai DITAHAN dalam notebook | Baseline yang digunakan untuk pembanding utama adalah repository `../HiCEM` asli, bukan implementasi internal ini |
+| C04/E07 | Jalur PseudoKitchens mematerialkan fitur CLIP ViT-L/14 sekali dengan transform resmi `clip.load`, lalu Stage 1/2 membaca tensor cache | Cache bukan hasil ilmiah; laporkan waktu extraction terpisah. Kesetaraan penuh dengan HiCEM asli tetap memerlukan runner baseline asli dan verifikasi data/split |
 
 Panduan operasional: [resume_training.md](resume_training.md). Output eksekusi
 lama notebook dipertahankan; output tersebut bukan bukti kode baru telah
@@ -77,13 +78,16 @@ ilmiah CUB/PseudoKitchens. Rincian fault injection ada di panduan resume.
 | Jumlah parameter total | **Tidak wajib sama persis** | Struktur hierarki mengubah kapasitas; ukur/laporkan dan jangan mengatribusikan semua peningkatan pada attention saja |
 | A2 tanpa KL | **Klaim terbatas pada Stage 2** | Discovery masih berasal dari Stage 1 dengan KL; bukan eksperimen tanpa KL global |
 
-**Keputusan epoch:** 50 Stage 1, 20 Stage 2, dan 50 baseline tetap merupakan
-budget awal/pilot, bukan angka yang telah terbukti adil atau konvergen.
-Menyamakan semuanya ke 300 tanpa memperbaiki baseline dan tanpa kurva validasi
-tidak menghasilkan head-to-head yang sah. Untuk klaim terhadap metode asli,
-selesaikan baseline faithful dan jalankan protokol referensinya; untuk klaim
-adaptasi terkontrol, tetapkan rentang tuning dan kriteria berhenti sebelum test.
-Resume tidak dipakai untuk diam-diam menambah epoch setelah melihat test.
+**Keputusan epoch:** catatan 50 Stage 1/20 Stage 2 di snapshot awal adalah
+budget pilot, bukan angka yang telah terbukti adil atau konvergen. Konfigurasi
+PseudoKitchens/CLIP aktif sekarang memakai maksimum 300 epoch dengan early
+stopping patience 15 dan batch 256 setelah cache fitur, selaras batas umum
+protokol HiCEM. Menyamakan semuanya ke 300 tanpa memperbaiki baseline dan tanpa
+kurva validasi tetap tidak menghasilkan head-to-head yang sah. Untuk klaim
+terhadap metode asli, selesaikan baseline faithful dan jalankan protokol
+referensinya; untuk klaim adaptasi terkontrol, tetapkan rentang tuning dan
+kriteria berhenti sebelum test. Resume tidak dipakai untuk diam-diam menambah
+epoch setelah melihat test.
 
 **Yang belum selesai untuk tabel ilmiah final:** adapter/runner data dan
 environment untuk menjalankan source asli ProbCBM serta HiCEM; validasi dataset
@@ -120,7 +124,7 @@ Sumber: [notebook](../notebooks/colab_setup_training.ipynb), [default](../config
 | --- | ---: | --- | --- |
 | CUB / Inception-v3 | 9 | 299 / 32 | CEM, ProbCBM, CBM masing-masing 50; dua Stage1 masing-masing 50; empat Stage2 masing-masing 20 |
 | CUB / ResNet18 | 4 | 224 / 32; anchor sanity check 299 / 32 | Dua baseline 50; Stage1 50; Stage2 20 |
-| PseudoKitchens / CLIP ViT-L/14 | 5 | 224 / 64 | HiCEM 50; Stage1 50; tiga Stage2 masing-masing 20 |
+| PseudoKitchens / CLIP ViT-L/14 | 5 | 224 / 256 setelah cache fitur CLIP | Stage 1/2 maksimum 300 dengan early stopping patience 15; extraction CLIP sekali per split |
 
 Ada 18 pemanggilan training, termasuk empat Stage1 yang menghasilkan discovery, sehingga tidak semuanya merupakan baris hasil klasifikasi final. Total 660 epoch per seed, di luar SAE. Sebelas run berlabel wajib dan tujuh tambahan. Notebook belum mengulang otomatis tiga seed.
 
@@ -223,9 +227,9 @@ Kita membaca 112 atribut dari pkl. [Loader HiCEM](../../HiCEM/cemcd/data/cub.py)
 
 Untuk CUB, verifikasi jumlah sampel, disjoint split, pemetaan 112 atribut, dan nama atribut. [Loader CUB](../hiprobcbm/data/cub.py) hanya menerima `attributes.txt` jika panjangnya persis 112; bila tidak, nama menjadi `concept_i`. Akibatnya grouping intervensi tidak lagi merepresentasikan kelompok atribut semantik. Pkl 112 atribut dan file nama 312 atribut perlu pemetaan eksplisit.
 
-### C04 — Transform CLIP tidak identik dengan transform resmi
+### C04 — Transform CLIP resmi dipakai pada jalur cache
 
-[clip_transforms](../hiprobcbm/data/transforms.py) langsung meresize ke persegi 224 dengan default interpolasi torchvision. Preprocess dari `clip.load` disimpan sebagai informasi tetapi tidak dipakai. [Referensi](../../HiCEM/cemcd/data/base.py) menggunakan transform hasil `clip.load`, dengan resize/crop/interpolasi CLIP. Dampak geometri tergantung rasio aspek citra aktual; perbedaan interpolasi tetap perlu dicocokkan. Internal antar-model CLIP memakai transform yang sama, tetapi bukan replikasi preprocessing acuan.
+[clip_transforms](../hiprobcbm/data/transforms.py) lama langsung meresize ke persegi 224 dengan default interpolasi torchvision. Jalur PseudoKitchens yang memakai `use_cached_features: true` sekarang mengganti transform tersebut dengan preprocess dari `clip.load("ViT-L/14")` saat mematerialkan cache train, validation, dan test. Ini mengikuti mekanisme [referensi](../../HiCEM/cemcd/data/base.py), yang juga menyimpan representasi foundation model. Checksum cache dan hash manifest/info.json masuk ke identitas checkpoint.
 
 Transform CUB internal juga berbeda dari [ProbCBM](../../ProbCBM/dataloaders/cub312_datamodule.py): ColorJitter, urutan augmentasi, dan konstanta normalisasi tidak identik. Tetapkan apakah ingin replikasi preprocessing asli atau protokol bersama yang dilaporkan sebagai adaptasi.
 
@@ -287,7 +291,7 @@ Logging trainer memakai basicConfig ke output proses; tidak ada penyimpanan otom
 
 ### E07 — Waktu komputasi belum dapat dibandingkan langsung
 
-HiCEM referensi menyimpan fitur CLIP untuk dipakai kembali; internal menghitung CLIP setiap batch/epoch. Pembacaan gambar via Drive, jumlah worker, precision, dan GPU memengaruhi waktu. Jika melaporkan efisiensi, pisahkan extraction, discovery, training head, evaluasi, dan total; catat parameter, memori puncak, serta compute units. Caching saja bukan peningkatan accuracy dan bukan pengganti perbaikan metodologi.
+HiCEM referensi menyimpan fitur CLIP untuk dipakai kembali. Jalur HiProbCBM PseudoKitchens kini melakukan hal yang sama: cache train/validation dibuat satu kali, sedangkan cache test baru dibuat saat evaluasi final. Pembacaan gambar via Drive, jumlah worker, precision, dan GPU tetap memengaruhi waktu extraction. Jika melaporkan efisiensi, pisahkan extraction, discovery, training head, evaluasi, dan total; catat parameter, memori puncak, serta compute units. Caching saja bukan peningkatan accuracy dan bukan pengganti perbaikan metodologi.
 
 ## F. Paper dan repository referensi tidak selalu sama
 

@@ -53,9 +53,18 @@ class HiProbCBMStage1(nn.Module):
     """Tahap 1 (Bab IV.5.1): representasi konsep probabilistik flat, identik
     strukturnya dengan ProbCBM (dipakai juga sebagai dasar mean untuk SAE)."""
 
-    def __init__(self, backbone_name: str, num_concepts: int, concept_dim: int = 16, pretrained: bool = True):
+    def __init__(
+        self,
+        backbone_name: str,
+        num_concepts: int,
+        concept_dim: int = 16,
+        pretrained: bool = True,
+        use_cached_features: bool = False,
+    ):
         super().__init__()
-        self.backbone: Backbone = build_backbone(backbone_name, pretrained=pretrained)
+        self.backbone: Backbone = build_backbone(
+            backbone_name, pretrained=pretrained, use_cached_features=use_cached_features
+        )
         self.concept_predictor = ProbabilisticConceptPredictor(
             feature_dim=self.backbone.output_dim, num_concepts=num_concepts, concept_dim=concept_dim
         )
@@ -179,9 +188,12 @@ class HiProbCBMStage2(nn.Module):
         n_mc_samples_eval: int = 32,
         use_attention: bool = True,
         classifier_hidden_dims: tuple[int, ...] = (),
+        use_cached_features: bool = False,
     ):
         super().__init__()
-        self.backbone: Backbone = build_backbone(backbone_name, pretrained=pretrained)
+        self.backbone: Backbone = build_backbone(
+            backbone_name, pretrained=pretrained, use_cached_features=use_cached_features
+        )
         self.subconcept_predictor = SubconceptPredictor(
             feature_dim=self.backbone.output_dim,
             subconcepts_per_concept=subconcepts_per_concept,

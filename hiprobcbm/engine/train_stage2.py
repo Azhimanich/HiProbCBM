@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from hiprobcbm.config import Config
 from hiprobcbm.data import build_dataset
+from hiprobcbm.data.feature_cache import cached_feature_loader, prepare_clip_feature_cache
 from hiprobcbm.losses import hiprobcbm_stage2_loss
 from hiprobcbm.metrics import compute_standard_metrics
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
@@ -130,15 +131,35 @@ def evaluate_stage2(model: HiProbCBMStage2, loader, device):
 
 def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path, resume="auto") -> None:
     dataset = build_dataset(cfg.dataset, **cfg.data.to_dict())
+    use_cached_features = cfg.model.get("use_cached_features", False)
     # shuffle=True aman dipakai di sini karena penautan sub_labels sekarang
     # berbasis identitas `path` per-batch (build_path_to_row), bukan lagi
     # asumsi urutan posisi yang identik dengan loader ekstraksi Tahap 1.
-    train_loader = dataset.get_dataloader(
-        "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=True
-    )
-    val_loader = dataset.get_dataloader(
-        "val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False
-    )
+    feature_artifacts: list[Path] = []
+    if use_cached_features:
+        payloads, feature_artifacts = prepare_clip_feature_cache(
+            dataset,
+            image_size=cfg.model.image_size,
+            batch_size=cfg.model.get("feature_cache_batch_size", cfg.train.batch_size),
+            num_workers=cfg.train.get("num_workers", 2),
+            device=device,
+            splits=("train", "val"),
+        )
+        train_loader = cached_feature_loader(
+            payloads["train"], batch_size=cfg.train.batch_size, shuffle=True,
+            num_workers=cfg.train.get("num_workers", 2), drop_last=True,
+        )
+        val_loader = cached_feature_loader(
+            payloads["val"], batch_size=cfg.train.batch_size, shuffle=False,
+            num_workers=cfg.train.get("num_workers", 2), drop_last=False,
+        )
+    else:
+        train_loader = dataset.get_dataloader(
+            "train", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=True
+        )
+        val_loader = dataset.get_dataloader(
+            "val", cfg.model.image_size, cfg.model.backbone, cfg.train.batch_size, num_workers=cfg.train.get("num_workers", 2), shuffle=False
+        )
 
     subconcepts_per_concept, pseudo_labels_all, pseudo_paths = load_pseudo_hierarchy(
         stage1_log_dir / "pseudo_hierarchy.pt"
@@ -156,12 +177,13 @@ def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path, 
         n_mc_samples_train=cfg.model.get("n_mc_samples_train", 8),
         n_mc_samples_eval=cfg.model.get("n_mc_samples_eval", 32),
         use_attention=cfg.model.get("use_attention", True),  # False -> HiProbCBM-A1 (Tabel 4.8)
+        use_cached_features=use_cached_features,
     ).to(device)
 
     optimizer = optimizer_for(model, cfg.train, cfg.train.lr_stage2)
 
     checkpoint = checkpoint_for(log_dir, "stage2", model, optimizer,
-                                run_identity(cfg, device, [stage1_log_dir / "pseudo_hierarchy.pt"]),
+                                run_identity(cfg, device, feature_artifacts + [stage1_log_dir / "pseudo_hierarchy.pt"]),
                                 cfg.train.epochs_stage2, cfg.train, resume)
     for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage2):
         train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, path_to_row, optimizer, device, cfg.train)

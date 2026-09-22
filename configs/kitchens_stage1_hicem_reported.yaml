@@ -1,5 +1,5 @@
 # Konfigurasi HiProbCBM yang dipasangkan dengan hasil publikasi HiCEM.
-experiment_name: kitchens_stage1_hicem_reported_clip
+experiment_name: kitchens_stage1_hicem_reported_clip_cached
 dataset: kitchens
 
 data:
@@ -10,9 +10,13 @@ model:
   image_size: 224
   concept_dim: 16
   pretrained: true
+  # CLIP ViT-L/14 dibekukan dan diekstrak sekali ke Drive, sesuai protokol
+  # source HiCEM. Epoch berikutnya membaca tensor fitur, bukan gambar mentah.
+  use_cached_features: true
+  feature_cache_batch_size: 64
 
 train:
-  batch_size: 64  # batas memori karena HiProbCBM menghitung encoder end-to-end; laporkan sebagai perbedaan dari cache HiCEM
+  batch_size: 256
   epochs_stage1: 300
   patience: 15
 

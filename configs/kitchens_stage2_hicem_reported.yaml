@@ -1,5 +1,5 @@
 # Stage 2 pasangan configs/kitchens_stage1_hicem_reported.yaml.
-experiment_name: kitchens_stage2_hicem_reported_clip
+experiment_name: kitchens_stage2_hicem_reported_clip_cached
 dataset: kitchens
 
 data:
@@ -11,9 +11,11 @@ model:
   concept_dim: 16
   pretrained: true
   use_attention: true
+  use_cached_features: true
+  feature_cache_batch_size: 64
 
 train:
-  batch_size: 64
+  batch_size: 256
   epochs_stage2: 300
   patience: 15
 
