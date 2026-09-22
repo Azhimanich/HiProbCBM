@@ -234,9 +234,22 @@ class RunCheckpoint:
         if (payload["scheduler"] is None) != (self.scheduler is None):
             raise ValueError("Scheduler checkpoint berbeda.")
         for key in self.identity:
-            if payload["identity"].get(key) != self.identity[key]:
-                raise ValueError(f"Resume ditolak: {key} berbeda (config/seed, kode, data, runtime atau hierarchy). "
-                                 "Pulihkan setting semula, atau gunakan direktori run baru.")
+            if payload["identity"].get(key) == self.identity[key]:
+                continue
+            if key == "environment":
+                # Colab dapat mengganti image/Python/CUDA di antara dua sesi.
+                # Tensor model dan state optimizer tetap divalidasi di bawah;
+                # perubahan ini dicatat, tetapi tidak boleh menghapus peluang
+                # untuk melanjutkan run yang sama dari Drive.
+                logger.warning(
+                    "RUNTIME BERUBAH saat resume. Checkpoint akan dilanjutkan setelah "
+                    "validasi model/optimizer/RNG; hasil tidak dijamin bitwise identik. "
+                    "Sebelumnya=%r | sekarang=%r",
+                    payload["identity"].get("environment"), self.identity["environment"],
+                )
+                continue
+            raise ValueError(f"Resume ditolak: {key} berbeda (config/seed, kode, data, atau hierarchy). "
+                             "Pulihkan setting semula, atau gunakan direktori run baru.")
         epoch, best_epoch = payload["epoch"], payload["best_epoch"]
         if type(epoch) is not int or not -1 <= epoch < self.total_epochs:
             raise ValueError("Epoch checkpoint tidak valid.")

@@ -65,16 +65,19 @@ fitur selesai ditulis, ekstraksi fitur diulang dari model parent terbaik.
 Loader memeriksa format/field checkpoint, checksum, jenis stage, jenis optimizer,
 scheduler dan early-stopping, konfigurasi
 efektif (termasuk seed dan ablasi), hash kode Python, hash metadata dataset,
-versi Python/Torch/NumPy/Torchvision/Pillow/CUDA/cuDNN, perangkat dan flag backend,
-serta hash `pseudo_hierarchy.pt` untuk Stage 2. Bobot dicek key/shape/dtype dan
+serta hash `pseudo_hierarchy.pt` untuk Stage 2. Metadata versi
+Python/Torch/NumPy/Torchvision/Pillow/CUDA/cuDNN, perangkat, dan flag backend juga
+dicatat. Bobot dicek key/shape/dtype dan
 nilai finite; state Adam dicek struktur/shape dan nilai finite; RNG dicek dengan
 generator terpisah sebelum dipulihkan. Epoch dan keberadaan bobot terbaik
 juga harus konsisten.
 
-Kebijakan saat ini **ketat**: jangan mengganti GPU, versi runtime, seed, batch,
-worker, jumlah epoch, konfigurasi SAE, atau kode di tengah run lalu menganggapnya
-resume identik. Jika berbeda, pulihkan setting semula atau mulai eksperimen
-baru di direktori berbeda. Perubahan lokasi `--log-dir` diperbolehkan dengan
+Kebijakan saat ini **ketat** untuk seed, batch, worker, jumlah epoch,
+konfigurasi SAE, kode, metadata data, dan hierarchy. Perubahan itu ditolak.
+Colab dapat mengganti image/Python/CUDA ketika runtime dipulihkan; perbedaan
+metadata runtime hanya memunculkan peringatan dan resume dilanjutkan setelah
+state model, optimizer, dan RNG lolos validasi. Catat perubahan ini pada log;
+hasil setelah perubahan runtime tidak diklaim bitwise identik. Perubahan lokasi `--log-dir` diperbolehkan dengan
 menyalin **seluruh folder run**, termasuk checkpoint/checksum/cache; konfigurasi
 path data dan isi metadata tetap harus cocok. Argumen path eksplisit hanya
 menerima file `*_resume.pth` milik direktori run tujuan, bukan best/last.

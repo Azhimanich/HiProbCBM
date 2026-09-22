@@ -157,7 +157,7 @@ def test_interruption_during_atomic_write_preserves_last_good_epoch(tmp_path, mo
     assert new_run(tmp_path).start_epoch == 1
 
 
-@pytest.mark.parametrize("field", ["config", "code", "data", "environment", "artifacts"])
+@pytest.mark.parametrize("field", ["config", "code", "data", "artifacts"])
 def test_identity_change_rejected_before_loading_weights(tmp_path, field):
     identity = {k: "original" for k in ["config", "code", "data", "environment", "artifacts"]}
     run = new_run(tmp_path, identity)
@@ -166,6 +166,17 @@ def test_identity_change_rejected_before_loading_weights(tmp_path, field):
     changed[field] = "changed"
     with pytest.raises(ValueError, match=field + " berbeda"):
         new_run(tmp_path, changed)
+
+
+def test_runtime_identity_change_warns_but_resumes(tmp_path, caplog):
+    identity = {k: "original" for k in ["config", "code", "data", "environment", "artifacts"]}
+    run = new_run(tmp_path, identity)
+    epoch(run, 0)
+    changed = dict(identity)
+    changed["environment"] = "new-colab-runtime"
+    resumed = new_run(tmp_path, changed)
+    assert resumed.start_epoch == 1
+    assert "RUNTIME BERUBAH" in caplog.text
 
 
 class TinySplit(Dataset):
