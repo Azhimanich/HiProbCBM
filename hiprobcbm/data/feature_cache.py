@@ -10,6 +10,7 @@ impractical.
 from __future__ import annotations
 
 import logging
+import csv
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -56,19 +57,56 @@ def _cache_root(dataset: Any) -> Path:
     return data_root / "representation_cache" / "clip_vitl14"
 
 
-def _identity(dataset: Any, image_size: int) -> dict[str, Any]:
+def _clip_contract() -> dict[str, str]:
+    """Stable identifiers for the exact OpenAI CLIP implementation/weights."""
+    try:
+        import clip  # type: ignore
+        from clip import clip as clip_impl  # type: ignore
+    except ImportError as exc:  # pragma: no cover - checked by build_backbone too
+        raise ImportError("Cache CLIP membutuhkan paket `clip`.") from exc
+    model_url = clip_impl._MODELS["ViT-L/14"]
+    return {
+        "model": "ViT-L/14",
+        # `clip.load` validates this SHA from the official model URL before it
+        # returns a model, so it identifies the actual checkpoint contract.
+        "checkpoint_sha256": model_url.rstrip("/").split("/")[-2],
+        "clip_source_sha256": file_hash(Path(clip.__file__)),
+        "clip_loader_source_sha256": file_hash(Path(clip_impl.__file__)),
+    }
+
+
+def _image_inventory_hash(data_root: Path) -> str | None:
+    """Fingerprint the manifest's image paths and file metadata without rereading pixels."""
+    manifest = data_root / "manifest.csv"
+    image_root = data_root / "images"
+    if not manifest.exists() or not image_root.exists():
+        return None
+    import hashlib
+
+    digest = hashlib.sha256()
+    with manifest.open("r", encoding="utf-8", newline="") as stream:
+        for row in csv.DictReader(stream):
+            relative = row["image"]
+            stat = (image_root / relative).stat()
+            digest.update(f"{relative}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _identity(dataset: Any, image_size: int, split: str) -> dict[str, Any]:
     data_root = Path(dataset.data_root)
     source_files = [data_root / name for name in ("manifest.csv", "info.json")]
     return {
         "schema": _SCHEMA_VERSION,
         "dataset": getattr(dataset, "name", type(dataset).__name__),
+        "split": split,
         "backbone": "clip_vit_l14",
         "image_size": int(image_size),
-        "preprocess": "openai_clip_vitl14",
+        "preprocess": "clip.load(ViT-L/14).preprocess",
+        "clip_contract": _clip_contract(),
         "source": {
             path.name: file_hash(path) if path.exists() else None
             for path in source_files
-        },
+        } | {"image_inventory_sha256": _image_inventory_hash(data_root)},
     }
 
 
@@ -88,6 +126,7 @@ def _validate_payload(payload: Any, expected_identity: dict[str, Any], path: Pat
         or payload["labels"].shape[0] != count
         or payload["concepts"].shape[0] != count
         or len(payload["paths"]) != count
+        or len(set(payload["paths"])) != count
     ):
         raise RuntimeError(f"Cache fitur {path} memiliki bentuk data tidak valid.")
     return payload
@@ -154,13 +193,13 @@ def prepare_clip_feature_cache(
     split_names = tuple(splits)
     if any(split not in _SPLITS for split in split_names):
         raise ValueError(f"Split cache tidak didukung: {split_names}")
-    identity = _identity(dataset, image_size)
     root = _cache_root(dataset)
     root.mkdir(parents=True, exist_ok=True)
     cache_files = {split: root / f"{split}.pt" for split in split_names}
     payloads: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
     for split, cache_file in cache_files.items():
+        identity = _identity(dataset, image_size, split)
         if cache_file.exists():
             try:
                 payloads[split] = _validate_payload(load_artifact(cache_file), identity, cache_file)
@@ -187,7 +226,7 @@ def prepare_clip_feature_cache(
             for split in missing:
                 payloads[split] = _cache_one_split(
                     dataset, split, image_size, batch_size, num_workers, device,
-                    backbone, identity, cache_files[split],
+                    backbone, _identity(dataset, image_size, split), cache_files[split],
                 )
         finally:
             del backbone
