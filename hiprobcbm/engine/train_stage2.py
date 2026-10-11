@@ -14,11 +14,11 @@ from tqdm import tqdm
 from hiprobcbm.config import Config
 from hiprobcbm.data import build_dataset
 from hiprobcbm.data.feature_cache import cached_feature_loader, prepare_clip_feature_cache
-from hiprobcbm.losses import hiprobcbm_stage2_loss
+from hiprobcbm.losses import hicem_concept_loss_weights, hiprobcbm_stage2_loss
 from hiprobcbm.metrics import compute_standard_metrics
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage2
 from hiprobcbm.utils.checkpoint import run_identity, require_finite, load_artifact
-from hiprobcbm.engine.protocol import checkpoint_for, optimizer_for
+from hiprobcbm.engine.protocol import checkpoint_for, clip_gradients, optimizer_for, train_concept_labels
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,84 @@ def build_path_to_row(paths: list[str]) -> dict[str, int]:
     return mapping
 
 
-def train_one_epoch(model, loader, pseudo_labels_all, path_to_row, optimizer, device, cfg_train):
+STAGE2_INIT_MODES = ("scratch", "stage1_frozen_concepts")
+
+
+def build_stage2_model(cfg: Config, num_classes: int, subconcepts_per_concept: list[int],
+                       pretrained: bool) -> HiProbCBMStage2:
+    """Satu-satunya pembuat model Tahap 2, dipakai trainer dan evaluator agar
+    konfigurasi yang dievaluasi selalu sama dengan yang dilatih."""
+    return HiProbCBMStage2(
+        backbone_name=cfg.model.backbone,
+        num_classes=num_classes,
+        subconcepts_per_concept=subconcepts_per_concept,
+        concept_dim=cfg.model.concept_dim,
+        pretrained=pretrained,
+        n_mc_samples_train=cfg.model.get("n_mc_samples_train", 8),
+        n_mc_samples_eval=cfg.model.get("n_mc_samples_eval", 32),
+        use_attention=cfg.model.get("use_attention", True),  # False -> HiProbCBM-A1 (Tabel 4.8)
+        use_cached_features=cfg.model.get("use_cached_features", False),
+        parent_probability=cfg.model.get("parent_probability", "aggregate"),
+    )
+
+
+def initialize_from_stage1(model: HiProbCBMStage2, stage1_best: Path) -> None:
+    """Muat backbone, prediktor konsep, dan scorer dari bobot terbaik Tahap 1,
+    lalu bekukan jalur konsep (padanan ProbCBM sequential concept -> class)."""
+    state = torch.load(stage1_best, map_location="cpu", weights_only=True)
+    parts = {"backbone.": model.backbone, "concept_predictor.": model.parent_predictor, "scorer.": model.scorer}
+    for prefix, module in parts.items():
+        sub_state = {k[len(prefix):]: v for k, v in state.items() if k.startswith(prefix)}
+        if not sub_state:
+            raise ValueError(f"{stage1_best} tidak memuat parameter '{prefix}'.")
+        module.load_state_dict(sub_state, strict=True)
+    model.freeze_concept_path()
+
+
+def concept_loss_weights(cfg_train, train_loader, pseudo_labels_all, device):
+    mode = cfg_train.get("concept_loss_weighting", "none")
+    if mode == "none":
+        return None, None
+    if mode != "hicem_imbalance":
+        raise ValueError(f"concept_loss_weighting tidak dikenal: {mode}")
+    parent_labels = train_concept_labels(train_loader)
+    if parent_labels.shape[0] != pseudo_labels_all.shape[0]:
+        raise ValueError("Jumlah sampel train berbeda dengan pseudo hierarchy; bobot imbalance tidak sah.")
+    return (hicem_concept_loss_weights(parent_labels).to(device),
+            hicem_concept_loss_weights(pseudo_labels_all).to(device))
+
+
+def training_interventions(model, cfg_train, parent_labels, sub_labels) -> dict:
+    """Intervensi acak saat training, mengikuti baseline protokolnya:
+
+    - ``probcbm``: tiap (sampel, sampel MC) dengan peluang ``prob`` memakai
+      anchor ground truth untuk SELURUH konsep (build_model_resnset.py:
+      ``torch.rand_like(gt[..., :1, :1]) < intervention_prob``; config_exp.yaml 0.5).
+    - ``hicem``: RandInt, satu mask Bernoulli(``prob``) per langkah atas seluruh
+      kolom top concept dan subkonsep, dibagi semua sampel batch
+      (hicem.py: ``torch.bernoulli(torch.full((n_concepts,), 0.25))``).
+    """
+    spec = cfg_train.get("intervention_training") or {}
+    mode = spec.get("mode", "none")
+    if mode == "none":
+        return {}
+    prob = float(spec["prob"])
+    device = parent_labels.device
+    if mode == "probcbm":
+        mask = torch.rand(parent_labels.shape[0], model.n_mc_samples_train, device=device) < prob
+        return {"sample_intervention_mask": mask, "parent_labels": parent_labels}
+    if mode == "hicem":
+        nan = torch.tensor(float("nan"), device=device)
+        parent_mask = torch.bernoulli(torch.full(parent_labels.shape[1:], prob, device=device)).bool()
+        valid = model.subconcept_predictor.mask
+        sub_mask = torch.bernoulli(torch.full(valid.shape, prob, device=device)).bool() & valid
+        return {"parent_intervention": torch.where(parent_mask, parent_labels, nan),
+                "sub_intervention": torch.where(sub_mask, sub_labels, nan)}
+    raise ValueError(f"intervention_training.mode tidak dikenal: {mode}")
+
+
+def train_one_epoch(model, loader, pseudo_labels_all, path_to_row, optimizer, device, cfg_train,
+                    parent_weights=None, sub_weights=None):
     model.train()
     running = {"total": 0.0, "class": 0.0, "concept": 0.0, "sub_concept": 0.0, "kl": 0.0}
     n_batches = 0
@@ -80,7 +157,7 @@ def train_one_epoch(model, loader, pseudo_labels_all, path_to_row, optimizer, de
         row_idx = torch.tensor([path_to_row[p] for p in batch["path"]], dtype=torch.long)
         sub_labels = pseudo_labels_all[row_idx].to(device)
 
-        out = model(x)
+        out = model(x, **training_interventions(model, cfg_train, c_parent, sub_labels))
         sub_mask = model.subconcept_predictor.mask.unsqueeze(0).expand(batch_size, -1, -1)
 
         loss, components = hiprobcbm_stage2_loss(
@@ -95,11 +172,15 @@ def train_one_epoch(model, loader, pseudo_labels_all, path_to_row, optimizer, de
             lambda_concept=cfg_train.get("lambda_concept", 1.0),
             lambda_sub=cfg_train.get("lambda_sub", 1.0),
             lambda_kl=cfg_train.get("lambda_kl", 5e-5),
+            parent_weights=parent_weights,
+            sub_weights=sub_weights,
+            reduction=cfg_train.get("concept_loss_reduction", "separate"),
         )
 
         require_finite(loss)
         optimizer.zero_grad()
         loss.backward()
+        clip_gradients(model, cfg_train)
         optimizer.step()
 
         running["total"] += loss.item()
@@ -168,25 +249,28 @@ def run(cfg: Config, device: torch.device, log_dir: Path, stage1_log_dir: Path, 
     if len(subconcepts_per_concept) != dataset.num_concepts:
         raise ValueError("Jumlah parent hierarchy berbeda dengan dataset Stage 2.")
 
-    model = HiProbCBMStage2(
-        backbone_name=cfg.model.backbone,
-        num_classes=dataset.num_classes,
-        subconcepts_per_concept=subconcepts_per_concept,
-        concept_dim=cfg.model.concept_dim,
-        pretrained=cfg.model.get("pretrained", True),
-        n_mc_samples_train=cfg.model.get("n_mc_samples_train", 8),
-        n_mc_samples_eval=cfg.model.get("n_mc_samples_eval", 32),
-        use_attention=cfg.model.get("use_attention", True),  # False -> HiProbCBM-A1 (Tabel 4.8)
-        use_cached_features=use_cached_features,
-    ).to(device)
+    model = build_stage2_model(cfg, dataset.num_classes, subconcepts_per_concept,
+                               pretrained=cfg.model.get("pretrained", True))
+    init_mode = cfg.train.get("stage2_init", "scratch")
+    if init_mode not in STAGE2_INIT_MODES:
+        raise ValueError(f"stage2_init harus salah satu dari {STAGE2_INIT_MODES}.")
+    identity_artifacts = feature_artifacts + [stage1_log_dir / "pseudo_hierarchy.pt"]
+    if init_mode == "stage1_frozen_concepts":
+        stage1_best = stage1_log_dir / "stage1_best.pth"
+        initialize_from_stage1(model, stage1_best)
+        identity_artifacts.append(stage1_best)
+        logger.info("Tahap 2 memakai bobot konsep Tahap 1 yang dibekukan: %s", stage1_best)
+    model = model.to(device)
+    parent_weights, sub_weights = concept_loss_weights(cfg.train, train_loader, pseudo_labels_all, device)
 
     optimizer = optimizer_for(model, cfg.train, cfg.train.lr_stage2)
 
     checkpoint = checkpoint_for(log_dir, "stage2", model, optimizer,
-                                run_identity(cfg, device, feature_artifacts + [stage1_log_dir / "pseudo_hierarchy.pt"]),
+                                run_identity(cfg, device, identity_artifacts),
                                 cfg.train.epochs_stage2, cfg.train, resume)
     for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage2):
-        train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, path_to_row, optimizer, device, cfg.train)
+        train_stats = train_one_epoch(model, train_loader, pseudo_labels_all, path_to_row, optimizer, device,
+                                      cfg.train, parent_weights, sub_weights)
         val_report = evaluate_stage2(model, val_loader, device)
         logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_report.as_dict())
 

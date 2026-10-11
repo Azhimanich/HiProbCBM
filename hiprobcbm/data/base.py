@@ -76,7 +76,8 @@ class ConceptDataset:
         dataset = getattr(splits, split)
         if augment is not None and hasattr(dataset, "transform"):
             from hiprobcbm.data.transforms import build_transform
-            dataset.transform = build_transform(backbone, image_size, train=augment)
+            dataset.transform = build_transform(backbone, image_size, train=augment,
+                                                protocol=getattr(self, "transform_protocol", "default"))
         if shuffle is None:
             shuffle = split == "train"
         if drop_last is None:

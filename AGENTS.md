@@ -217,3 +217,13 @@ metodologi upstream. Lihat docs/head_to_head_audit_2026-09-20.md.
 `RunCheckpoint` schema 2 pada HiProbCBM menyimpan optimizer, scheduler,
 early stopping, riwayat validation, epoch, best state, RNG, checksum dan
 backup. Resume checkpoint schema lama ditolak.
+
+## Revisi 11 Oktober 2026
+
+Hasil run pertama menunjukkan akurasi konsep induk turun di Tahap 2
+(underfitting struktural) dan hyperparameter Tahap 1 belum mengikuti sumber.
+Protokol probcbm dan hicem direvisi menyeluruh; setiap perubahan dirujuk ke
+baris source ProbCBM/HiCEM di `docs/reported_baseline_protocol.md` bagian
+"Revisi 11 Oktober 2026". Termasuk latihan dan evaluasi intervensi.
+Hasil lama dihapus (atas permintaan pengguna, karena ruang Drive) memakai
+`scripts/reset_protocol_results.py`; angka lamanya dicatat di dokumen tersebut.

@@ -47,6 +47,28 @@ def concept_roc_auc(concept_probs: torch.Tensor, concept_labels: torch.Tensor) -
     return float(np.mean(scores)) if scores else float("nan")
 
 
+def concept_roc_auc_hicem_protocol(concept_probs: torch.Tensor, concept_labels: torch.Tensor) -> float:
+    """Mean ROC-AUC sesuai ``calculate_concept_accuracies`` HiCEM
+    (../HiCEM/cemcd/metrics.py): kolom dengan satu kelas label memakai
+    accuracy (threshold > 0.5) sebagai pengganti AUC, bukan dilewati.
+    Dipakai saat membandingkan dengan Tabel 4 paper HiCEM."""
+    probs = concept_probs.cpu().numpy()
+    labels = concept_labels.cpu().numpy()
+    scores = []
+    for i in range(labels.shape[-1]):
+        truth = labels[..., i].reshape(-1)
+        prediction = probs[..., i].reshape(-1)
+        valid = (truth == 0) | (truth == 1)
+        if not valid.any():
+            continue
+        truth, prediction = truth[valid], prediction[valid]
+        if len(np.unique(truth)) == 1:
+            scores.append(float(((prediction > 0.5) == truth).mean()))
+        else:
+            scores.append(roc_auc_score(truth, prediction))
+    return float(np.mean(scores)) if scores else float("nan")
+
+
 def intervention_performance(acc_after_intervention: float, acc_before: float) -> float:
     """Bab IV.7.1.5: Delta Acc_int = Acc(y | do(c_J=c_J*)) - Acc(y_hat)."""
     return acc_after_intervention - acc_before
@@ -92,6 +114,7 @@ class MetricReport:
     task_f1: float
     concept_accuracy: float
     concept_roc_auc: float
+    concept_roc_auc_hicem_protocol: float | None = None
     ece: float | None = None
     intervention_delta: float | None = None
 
@@ -101,6 +124,7 @@ class MetricReport:
             "task_f1": self.task_f1,
             "concept_accuracy": self.concept_accuracy,
             "concept_roc_auc": self.concept_roc_auc,
+            "concept_roc_auc_hicem_protocol": self.concept_roc_auc_hicem_protocol,
             "ece": self.ece,
             "intervention_delta": self.intervention_delta,
         }
@@ -122,5 +146,6 @@ def compute_standard_metrics(
         task_f1=task_f1(pred_labels, task_labels),
         concept_accuracy=concept_accuracy(concept_probs, concept_labels),
         concept_roc_auc=concept_roc_auc(concept_probs, concept_labels),
+        concept_roc_auc_hicem_protocol=concept_roc_auc_hicem_protocol(concept_probs, concept_labels),
         ece=expected_calibration_error(confidences, correct) if compute_ece else None,
     )

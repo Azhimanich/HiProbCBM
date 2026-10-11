@@ -68,7 +68,8 @@ def test_compute_standard_metrics_end_to_end():
 
     report = compute_standard_metrics(task_probs, task_labels, concept_probs, concept_labels)
     d = report.as_dict()
-    assert set(d.keys()) == {"task_accuracy", "task_f1", "concept_accuracy", "concept_roc_auc", "ece", "intervention_delta"}
+    assert set(d.keys()) == {"task_accuracy", "task_f1", "concept_accuracy", "concept_roc_auc",
+                             "concept_roc_auc_hicem_protocol", "ece", "intervention_delta"}
     assert 0.0 <= d["task_accuracy"] <= 1.0
     assert 0.0 <= d["concept_accuracy"] <= 1.0
 

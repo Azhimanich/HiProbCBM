@@ -17,6 +17,7 @@ dependencies = [
     "pandas>=2.0",
     "matplotlib>=3.7",
     "seaborn>=0.12",
+    "adamp==0.3.0",  # optimizer ProbCBM (configs/config_exp.yaml: optim adamp)
 ]
 
 [project.optional-dependencies]

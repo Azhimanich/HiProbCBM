@@ -11,13 +11,27 @@ model:
   concept_dim: 16
   pretrained: true
   use_attention: true
+  # Probabilitas induk mengikuti rumus HiCEM (cemcd/models/hicem.py).
+  parent_probability: hicem_mix
   use_cached_features: true
   feature_cache_batch_size: 64
 
 train:
   batch_size: 256
   epochs_stage2: 300
-  patience: 15
+  # HiCEM (cemcd/training.py train_hicem, models/base.py, kitchens.yaml):
+  # Adam lr 1e-3; concept loss weight 10 atas BCE gabungan top+sub dengan
+  # bobot imbalance; early stopping 15 cek x 5 epoch = 75 epoch. HiCEM
+  # dilatih dari awal, sehingga stage2_init tetap scratch.
+  lr_stage2: 0.001
+  lambda_concept: 10.0
+  concept_loss_reduction: joint
+  concept_loss_weighting: hicem_imbalance
+  patience: 75
+  # RandInt HiCEM (hicem.py): Bernoulli(0.25) atas kolom top concept + subkonsep.
+  intervention_training:
+    mode: hicem
+    prob: 0.25
 
 benchmark:
   type: reported_baseline_comparison

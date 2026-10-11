@@ -29,6 +29,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from hiprobcbm.data.base import ConceptDataset, DatasetSplits, derive_attribute_groups
+from hiprobcbm.data.cub_concept_names import CUB_CONCEPT_NAMES
 from hiprobcbm.data.transforms import build_transform
 
 DEFAULT_NUM_CONCEPTS = 112
@@ -49,6 +50,9 @@ def _load_attribute_names(data_root: Path, num_concepts: int) -> list[str]:
                 names.append(parts[-1] if len(parts) > 1 else parts[0])
         if len(names) == num_concepts:
             return names
+    if num_concepts == len(CUB_CONCEPT_NAMES):
+        # Urutan 112 atribut pkl class_attr_data_10 = SELECTED_CONCEPTS ProbCBM/HiCEM.
+        return list(CUB_CONCEPT_NAMES)
     return [f"concept_{i}" for i in range(num_concepts)]
 
 
@@ -79,8 +83,9 @@ class _CUBSplitDataset(Dataset):
 
 
 class CUBConceptDataset(ConceptDataset):
-    def __init__(self, data_root: str | Path, num_concepts: int = DEFAULT_NUM_CONCEPTS):
+    def __init__(self, data_root: str | Path, num_concepts: int = DEFAULT_NUM_CONCEPTS, transform: str = "default"):
         self.data_root = Path(data_root)
+        self.transform_protocol = transform
         concept_names = _load_attribute_names(self.data_root, num_concepts)
         concept_groups = derive_attribute_groups(concept_names)
         super().__init__(
@@ -99,8 +104,8 @@ class CUBConceptDataset(ConceptDataset):
 
     def get_splits(self, image_size: int, backbone: str) -> DatasetSplits:
         image_root = self.data_root / "images"
-        train_tf = build_transform(backbone, image_size, train=True)
-        eval_tf = build_transform(backbone, image_size, train=False)
+        train_tf = build_transform(backbone, image_size, train=True, protocol=self.transform_protocol)
+        eval_tf = build_transform(backbone, image_size, train=False, protocol=self.transform_protocol)
         return DatasetSplits(
             train=_CUBSplitDataset(self._load_split("train"), image_root, train_tf),
             val=_CUBSplitDataset(self._load_split("val"), image_root, eval_tf),

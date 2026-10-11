@@ -14,6 +14,9 @@ from torchvision import transforms as T
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
+# ProbCBM memakai konstanta timm IMAGENET_INCEPTION_MEAN/STD.
+INCEPTION_MEAN = [0.5, 0.5, 0.5]
+INCEPTION_STD = [0.5, 0.5, 0.5]
 CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
 CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
 
@@ -41,6 +44,23 @@ def imagenet_transforms(image_size: int, train: bool) -> T.Compose:
     )
 
 
+def probcbm_cub_transforms(image_size: int, train: bool) -> T.Compose:
+    """Salinan trainTransform/testTransform ../ProbCBM/dataloaders/cub312_datamodule.py
+    (urutan augmentasi, ColorJitter, dan normalisasi 0.5 dipertahankan)."""
+    resize_to = int(image_size * 256 / 224)
+    normalize = T.Normalize(mean=INCEPTION_MEAN, std=INCEPTION_STD)
+    if train:
+        return T.Compose([
+            T.ColorJitter(brightness=32 / 255, saturation=0.5),
+            T.RandomHorizontalFlip(),
+            T.Resize((resize_to, resize_to)),
+            T.RandomResizedCrop(image_size, scale=(0.8, 1.0)),
+            T.ToTensor(),
+            normalize,
+        ])
+    return T.Compose([T.Resize((resize_to, resize_to)), T.CenterCrop(image_size), T.ToTensor(), normalize])
+
+
 def clip_transforms(image_size: int = 224) -> T.Compose:
     return T.Compose(
         [
@@ -51,7 +71,13 @@ def clip_transforms(image_size: int = 224) -> T.Compose:
     )
 
 
-def build_transform(backbone: str, image_size: int, train: bool) -> T.Compose:
+def build_transform(backbone: str, image_size: int, train: bool, protocol: str = "default") -> T.Compose:
+    if protocol == "probcbm":
+        if backbone != "resnet18":
+            raise ValueError("Transform protokol ProbCBM hanya untuk CUB/ResNet18.")
+        return probcbm_cub_transforms(image_size, train)
+    if protocol != "default":
+        raise ValueError(f"Protokol transform tidak dikenal: {protocol}")
     if backbone in ("inception_v3", "resnet18"):
         return imagenet_transforms(image_size, train)
     if backbone == "clip_vit_l14":

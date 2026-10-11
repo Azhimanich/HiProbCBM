@@ -4,6 +4,8 @@ dataset: cub
 
 data:
   data_root: datasets/CUB_200_2011
+  # Salinan augmentasi/normalisasi ProbCBM (dataloaders/cub312_datamodule.py).
+  transform: probcbm
 
 model:
   backbone: resnet18
@@ -13,12 +15,27 @@ model:
   n_mc_samples_train: 50
   n_mc_samples_eval: 50
   use_attention: true
+  # Probabilitas induk = rata-rata prediksi langsung dan
+  # soft-OR subkonsep, rumus HiCEM (cemcd/models/hicem.py).
+  parent_probability: hicem_mix
 
 train:
   batch_size: 128
   epochs_stage2: 20
   scheduler: cosine
   patience: null
+  # Tahap class ProbCBM sequential (main.py, run_epoch.py, config_exp.yaml):
+  # jalur konsep Tahap 1 dibekukan; kepala baru dilatih AdamP dengan
+  # lr 1e-3 x lr_ratio 10, cosine, 20 epoch, clip 2.0, dan intervensi acak
+  # anchor ground truth intervention_prob 0.5.
+  stage2_init: stage1_frozen_concepts
+  optimizer: adamp
+  lr_stage2: 0.001
+  lr_ratio: 10.0
+  clip_grad_norm: 2.0
+  intervention_training:
+    mode: probcbm
+    prob: 0.5
 
 benchmark:
   type: reported_baseline_comparison

@@ -5,6 +5,8 @@ dataset: cub
 
 data:
   data_root: datasets/CUB_200_2011
+  # Salinan augmentasi/normalisasi ProbCBM (dataloaders/cub312_datamodule.py).
+  transform: probcbm
 
 model:
   backbone: resnet18
@@ -19,6 +21,14 @@ train:
   epochs_stage1: 50
   scheduler: cosine
   patience: null
+  # Tahap konsep ProbCBM (main.py, run_epoch.py, configs/config_exp.yaml):
+  # AdamP, lr backbone 1e-3 dan kepala 1e-3 x lr_ratio 10, backbone beku
+  # 5 epoch pertama, clip_grad_max_norm 2.0, vib_beta 5e-5 (= lambda_kl).
+  optimizer: adamp
+  lr_stage1: 0.001
+  lr_ratio: 10.0
+  warm_epochs: 5
+  clip_grad_norm: 2.0
 
 benchmark:
   type: reported_baseline_comparison

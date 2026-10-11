@@ -16,7 +16,13 @@ model:
 train:
   batch_size: 256
   epochs_stage1: 300
-  patience: 15
+  # Model awal HiCEM (cemcd/training.py train_cem, models/base.py,
+  # experiments/configs/kitchens.yaml): Adam lr 1e-3, concept loss weight 10,
+  # bobot imbalance, early stopping 15 cek x 5 epoch = 75 epoch.
+  lr_stage1: 0.001
+  lambda_concept: 10.0
+  concept_loss_weighting: hicem_imbalance
+  patience: 75
 
 sae:
   variant: batchtopk

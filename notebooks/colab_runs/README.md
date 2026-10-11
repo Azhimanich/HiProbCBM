@@ -22,3 +22,16 @@ resmi CLIP, checksum SHA-256, dan menjadi bagian dari identitas checkpoint.
 Training berikutnya (termasuk A1/A2/A3) memakai tensor tersebut, sehingga tidak
 menjalankan encoder CLIP atau membaca gambar Drive di setiap epoch. Cache test
 baru dibuat saat evaluasi final.
+
+## Revisi 11 Oktober 2026
+
+Tahap 1, Tahap 2, dan evaluasi intervensi direvisi (lihat
+`docs/reported_baseline_protocol.md`, bagian "Revisi 11 Oktober 2026").
+Hasil lama tidak kompatibel dan harus dihapus sebelum menjalankan ulang
+satu protokol, misalnya:
+
+    !python scripts/reset_protocol_results.py --protocol probcbm          # dry-run
+    !python scripts/reset_protocol_results.py --protocol probcbm --apply
+
+Lalu jalankan notebook seperti biasa. Sel evaluasi kini juga menyimpan
+`intervention_curves.json` per seed dan mengisi `intervention_delta`.

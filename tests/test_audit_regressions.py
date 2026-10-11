@@ -36,7 +36,8 @@ def test_evaluation_restores_a1_and_inception_behavior(tmp_path, monkeypatch):
             seen.update(kwargs)
             self.backbone = SimpleNamespace(module=SimpleNamespace(transform_input=False))
 
-    monkeypatch.setattr(evaluate, "HiProbCBMStage2", Model)
+    from hiprobcbm.engine import train_stage2
+    monkeypatch.setattr(train_stage2, "HiProbCBMStage2", Model)  # dipakai build_stage2_model
     monkeypatch.setattr(evaluate, "build_dataset", lambda *a, **k: SimpleNamespace(
         num_classes=2, get_dataloader=lambda *a, **k: []))
 
@@ -49,6 +50,7 @@ def test_evaluation_restores_a1_and_inception_behavior(tmp_path, monkeypatch):
     result = evaluate.evaluate_hiprobcbm_checkpoint(Config({}), path, [1, 1], torch.device("cpu"))
     assert seen["use_attention"] is False
     assert seen["pretrained"] is False  # no download, flag restored separately
+    assert seen["parent_probability"] == "aggregate"  # manifest v1 tanpa kunci -> perilaku lama
     assert result["task_accuracy"] == .5
 
 

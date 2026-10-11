@@ -19,35 +19,69 @@ from tqdm import tqdm
 from hiprobcbm.config import Config
 from hiprobcbm.data import build_dataset
 from hiprobcbm.data.feature_cache import cached_feature_loader, prepare_clip_feature_cache
-from hiprobcbm.losses import hiprobcbm_stage1_loss
+from hiprobcbm.losses import hicem_concept_loss_weights, hiprobcbm_stage1_loss
 from hiprobcbm.models.hiprobcbm import HiProbCBMStage1
 from hiprobcbm.models.subconcept_discovery import PseudoHierarchy, build_pseudo_hierarchy
 from hiprobcbm.utils.checkpoint import run_identity, save_artifact, load_artifact, capture_rng, restore_rng, require_finite, file_hash
-from hiprobcbm.engine.protocol import checkpoint_for, optimizer_for
+from hiprobcbm.engine.protocol import (checkpoint_for, clip_gradients, optimizer_for, set_backbone_trainable,
+                                      train_concept_labels)
 
 logger = logging.getLogger(__name__)
 
 
-def train_one_epoch(model: HiProbCBMStage1, loader, optimizer, device, lambda_kl: float, n_samples=8) -> dict[str, float]:
+def stage1_complete(config_path: str | Path, seed: int, log_dir: str | Path) -> bool:
+    """True bila ``pseudo_hierarchy.pt`` di ``log_dir`` dibuat oleh konfigurasi
+    efektif yang sama (termasuk seed) dengan ``config_path`` saat ini.
+
+    Notebook memakai ini untuk melewati Tahap 1 yang sudah selesai tanpa
+    memanggil resume (yang menolak bila hash kode berubah), tetapi tidak
+    pernah memakai hierarchy dari konfigurasi lama secara diam-diam."""
+    import json
+
+    from hiprobcbm.config import apply_seed_override, load_config
+
+    log_dir = Path(log_dir)
+    manifest = log_dir / "run_manifest.json"
+    if not ((log_dir / "pseudo_hierarchy.pt").exists() and (log_dir / "stage1_best.pth").exists() and manifest.exists()):
+        return False
+    expected = apply_seed_override(load_config(config_path), seed).to_dict()
+    for key in ("log_dir", "config_path"):
+        expected.pop(key, None)
+    return json.loads(manifest.read_text(encoding="utf-8")).get("config") == expected
+
+
+def train_one_epoch(model: HiProbCBMStage1, loader, optimizer, device, lambda_kl: float, n_samples=8,
+                    cfg_train=None, warm: bool = False, concept_weights=None) -> dict[str, float]:
+    cfg_train = cfg_train or {}
     model.train()
+    if warm:
+        set_backbone_trainable(model, False)
     running = {"total": 0.0, "concept_bce": 0.0, "kl": 0.0}
     n_batches = 0
-    for batch in tqdm(loader, desc="stage1/train", leave=False):
-        x = batch["image"].to(device)
-        c = batch["concepts"].to(device)
+    try:
+        for batch in tqdm(loader, desc="stage1/train", leave=False):
+            x = batch["image"].to(device)
+            c = batch["concepts"].to(device)
 
-        out = model(x, n_samples=n_samples)
-        loss, components = hiprobcbm_stage1_loss(out.concept_probs, c, out.kl_loss, lambda_kl=lambda_kl)
+            out = model(x, n_samples=n_samples)
+            loss, components = hiprobcbm_stage1_loss(
+                out.concept_probs, c, out.kl_loss, lambda_kl=lambda_kl,
+                lambda_concept=cfg_train.get("lambda_concept", 1.0), concept_weights=concept_weights,
+            )
 
-        require_finite(loss)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            require_finite(loss)
+            optimizer.zero_grad()
+            loss.backward()
+            clip_gradients(model, cfg_train)
+            optimizer.step()
 
-        running["total"] += loss.item()
-        running["concept_bce"] += components["concept_bce"].item()
-        running["kl"] += components["kl"].item()
-        n_batches += 1
+            running["total"] += loss.item()
+            running["concept_bce"] += components["concept_bce"].item()
+            running["kl"] += components["kl"].item()
+            n_batches += 1
+    finally:
+        if warm:
+            set_backbone_trainable(model, not getattr(model.backbone, "frozen", False))
 
     return {k: v / max(n_batches, 1) for k, v in running.items()}
 
@@ -142,9 +176,16 @@ def run(cfg: Config, device: torch.device, log_dir: Path, resume="auto") -> Pseu
     if checkpoint.completed:
         logger.info("Stage 1 checkpoint sudah selesai; ekspor bobot terbaik.")
     else:
+        weighting = cfg.train.get("concept_loss_weighting", "none")
+        if weighting not in ("none", "hicem_imbalance"):
+            raise ValueError(f"concept_loss_weighting tidak dikenal: {weighting}")
+        concept_weights = (hicem_concept_loss_weights(train_concept_labels(train_loader)).to(device)
+                           if weighting == "hicem_imbalance" else None)
+        warm_epochs = cfg.train.get("warm_epochs", 0) or 0
         for epoch in range(checkpoint.start_epoch, cfg.train.epochs_stage1):
             train_stats = train_one_epoch(model, train_loader, optimizer, device, cfg.train.get("lambda_kl", 5e-5),
-                                          cfg.model.get("n_mc_samples_train", 8))
+                                          cfg.model.get("n_mc_samples_train", 8), cfg.train,
+                                          warm=epoch < warm_epochs, concept_weights=concept_weights)
             val_stats = evaluate_stage1(model, val_loader, device, cfg.model.get("n_mc_samples_eval", 32))
             logger.info("epoch=%d train=%s val=%s", epoch, train_stats, val_stats)
 
