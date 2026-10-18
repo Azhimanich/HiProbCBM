@@ -35,3 +35,12 @@ satu protokol, misalnya:
 
 Lalu jalankan notebook seperti biasa. Sel evaluasi kini juga menyimpan
 `intervention_curves.json` per seed dan mengisi `intervention_delta`.
+
+## Evaluasi ulang 03-07
+
+`09_evaluasi_ulang.ipynb` hanya menjalankan inferensi pada `stage2_best.pth`
+yang sudah ada untuk notebook 03-07, lalu menulis ulang `ringkasan_tiga_seed.csv`
+beserta `intervention_delta` dan `intervention_curves.json`. Dipakai karena
+evaluasi awal kelima notebook itu dijalankan dari versi notebook lama yang belum
+menghitung intervensi. Tidak ada training.
+
