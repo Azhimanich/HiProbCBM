@@ -159,3 +159,24 @@ Notebook melewati Tahap 1 hanya bila `stage1_complete()` memastikan
 `pseudo_hierarchy.pt` dibuat oleh konfigurasi dan seed yang sama, sehingga
 hierarchy lama tidak pernah dipakai diam-diam. Cache fitur CLIP tidak
 bergantung pada kode HiProbCBM dan tetap dipakai ulang.
+
+## Analisis tambahan: uncertainty dan subkonsep hasil discovery
+
+Dijalankan oleh `notebooks/colab_runs/10_analisis_tambahan.ipynb` memakai
+`hiprobcbm/engine/analysis.py`. Semuanya inferensi pada `stage2_best.pth`.
+
+| Analisis | Prosedur | Sumber | Catatan |
+| --- | --- | --- | --- |
+| Uji cutout | Patch 64 di tengah citra ternormalisasi dinolkan; dilaporkan proporsi sampel yang rata-rata uncertainty konsepnya naik | `ProbCBM/utils/evaluate.py` `run_cutout_test` | Hanya CUB; PseudoKitchens memakai cache fitur CLIP sehingga citra mentah tidak tersedia |
+| Uncertainty vs performa | 10 kelompok berukuran sama menurut uncertainty; akurasi per kelompok dan korelasi Spearman | ProbCBM Sec. 5.2.3, Fig. 10 | Kode figur tidak ada di repo ProbCBM; prosedur direkonstruksi dari teks paper |
+| Urutan intervensi | Area kurva urutan uncertainty vs rata-rata urutan acak dari `intervention_curves.json` | ProbCBM Fig. 11 | Protokol CUB |
+| Subkonsep hasil discovery | Pencocokan ke ingredient di train (ROC-AUC > 0,7, hanya subkonsep milik parent yang sama); rata-rata ROC-AUC test prediksi subkonsep yang cocok; intervensi kumulatif dan satu per satu dengan label test ingredient | `HiCEM/experiments/run.py` `match_discovered_concepts_to_concept_bank`, `get_accuracies`; `experiment_utils.py` `get_intervention_accuracies` | Hanya PseudoKitchens. HiCEM memakai concept bank level ingredient; level sub-sub (`SUB_SUB_CONCEPTS`) tidak dipakai pada matching HiCEM non-deep |
+
+Uncertainty konsep = `exp(mean(log sigma))` (`get_uncertainty` ProbCBM),
+dihitung dua kali: dari prediktor induk langsung (padanan ProbCBM) dan dari
+variance induk hasil propagasi subkonsep `sum(alpha^2 sigma2_sub)` (klaim
+HiProbCBM). Uncertainty kelas memakai entropi prediktif ternormalisasi;
+ProbCBM memakai `get_class_uncertainty` yang khusus untuk head anchor, jadi
+ini adaptasi. Pada protokol CUB, prediktor induk langsung adalah bobot Tahap 1
+yang dibekukan, sehingga uncertainty `own` mencerminkan Tahap 1.
+

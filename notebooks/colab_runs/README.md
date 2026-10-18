@@ -44,3 +44,10 @@ beserta `intervention_delta` dan `intervention_curves.json`. Dipakai karena
 evaluasi awal kelima notebook itu dijalankan dari versi notebook lama yang belum
 menghitung intervensi. Tidak ada training.
 
+## Analisis tambahan
+
+`10_analisis_tambahan.ipynb` menjalankan analisis uncertainty (prosedur
+ProbCBM) untuk delapan skenario dan analisis subkonsep hasil discovery
+(prosedur HiCEM) untuk skenario PseudoKitchens. Hanya inferensi; ringkasan di
+`train_log/analisis_tambahan.csv`.
+
