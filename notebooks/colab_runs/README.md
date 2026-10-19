@@ -51,3 +51,12 @@ ProbCBM) untuk delapan skenario dan analisis subkonsep hasil discovery
 (prosedur HiCEM) untuk skenario PseudoKitchens. Hanya inferensi; ringkasan di
 `train_log/analisis_tambahan.csv`.
 
+## Analisis kualitatif dan grafik
+
+`11_kualitatif_dan_grafik.ipynb` membuat grafik naskah (kurva intervensi,
+uncertainty vs akurasi, intervensi subkonsep) dari JSON hasil notebook 01-10,
+serta penjelasan multilevel per sampel uji model utama (Bab IV.7.2):
+konsep induk dengan kontribusi terbesar ke kelas prediksi, subkonsep dengan
+bobot attention, probabilitas dan uncertainty tiap tingkat, dan citra
+prototipe subkonsep. Hanya inferensi; keluaran di `HiProbCBM_results/figures/`.
+
