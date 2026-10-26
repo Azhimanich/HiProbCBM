@@ -58,9 +58,12 @@ def select_samples(correct: np.ndarray, confidence: np.ndarray, n_confident: int
 @torch.no_grad()
 def explain_test_samples(cfg: Config, stage2_checkpoint: Path, hierarchy_path: Path, device: torch.device,
                          sub_names: dict | None = None, top_parents: int = 3, top_subconcepts: int = 4,
-                         n_prototypes: int = 3, seed: int = 0, **selection) -> dict:
+                         n_prototypes: int = 3, seed: int = 0, hierarchical_only: bool = True, **selection) -> dict:
     """Penjelasan multilevel untuk sampel test terpilih.
 
+    ``hierarchical_only``: hanya tampilkan konsep induk dengan lebih dari satu
+    subkonsep (bila ada), agar tingkat subkonsep benar-benar terlihat; induk
+    dengan satu subkonsep memiliki attention 1 secara trivial.
     ``sub_names``: {(parent, subkonsep): nama}, mis. ingredient hasil matching
     ``discovered_subconcepts.json``. Subkonsep tanpa nama diberi label
     ``sub-k`` dan diberi contoh citra train yang pseudo-labelnya positif
@@ -111,7 +114,10 @@ def explain_test_samples(cfg: Config, stage2_checkpoint: Path, hierarchy_path: P
         pred = int(preds[index])
         contribution = (weight[pred].view(model.num_concepts, d) * mu_parent[row]).sum(-1)
         parents = []
-        for i in torch.argsort(contribution, descending=True)[:top_parents].tolist():
+        ranked = torch.argsort(contribution, descending=True).tolist()
+        if hierarchical_only and any(counts[i] > 1 for i in ranked):
+            ranked = [i for i in ranked if counts[i] > 1]
+        for i in ranked[:top_parents]:
             subs = []
             for k in torch.argsort(out.attention[row, i].cpu(), descending=True)[:min(top_subconcepts, counts[i])].tolist():
                 positives = torch.nonzero(pseudo[:, i, k]).flatten()[:n_prototypes].tolist()

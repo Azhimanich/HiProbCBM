@@ -48,6 +48,9 @@ def test_explanation_and_figures_end_to_end(tmp_path):
         json.dumps(result)
         sample = result["samples"][0]
         assert len(sample["parents"]) == 2 and sample["parents"][0]["subconcepts"]
+        counts = torch.load(s1 / "pseudo_hierarchy.pt", weights_only=True)["subconcepts_per_concept"]
+        if any(k > 1 for k in counts):  # hanya induk bertingkat yang ditampilkan
+            assert all(p["n_subconcepts"] > 1 for p in sample["parents"])
         contributions = [p["contribution_to_predicted_logit"] for p in sample["parents"]]
         assert contributions == sorted(contributions, reverse=True)
         attentions = [s["attention"] for s in sample["parents"][0]["subconcepts"]]
